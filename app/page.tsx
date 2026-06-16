@@ -1,5 +1,6 @@
 "use client";
 
+import { SignInButton, UserButton, useUser } from "@clerk/nextjs";
 import {
   Activity,
   CalendarDays,
@@ -113,7 +114,7 @@ const addOptions: Array<{
 ];
 
 export default function Home() {
-  const [isLogged, setIsLogged] = useState(false);
+  const { isLoaded, isSignedIn } = useUser();
   const [selected, setSelected] = useState("16");
   const [editing, setEditing] = useState<PlanItem | null>(null);
   const [showAdd, setShowAdd] = useState(false);
@@ -123,125 +124,136 @@ export default function Home() {
     return item?.date === "16" ? "Hoje" : `Dia ${item?.date}`;
   }, [selected]);
 
-  if (!isLogged) {
-    return <LoginScreen onEnter={() => setIsLogged(true)} />;
-  }
-
   return (
-    <main className="min-h-dvh overflow-hidden bg-coal text-zinc-50 sm:grid sm:place-items-center sm:p-6">
-      <div className="subtle-grid fixed inset-0 opacity-25" />
-      <section className="relative mx-auto flex h-dvh w-full max-w-[430px] flex-col overflow-hidden bg-coal px-4 py-4 shadow-2xl shadow-black/50 sm:h-[860px] sm:max-h-[92dvh] sm:rounded-[2rem] sm:border sm:border-white/10">
-        <header className="flex shrink-0 items-center justify-between">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-acid">
-              Ratos de Academia
-            </p>
-            <h1 className="mt-1 text-2xl font-black text-white">
-              {selectedLabel}
-            </h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              className="grid h-10 w-10 place-items-center rounded-lg border border-white/10 bg-white/[0.04] text-zinc-300"
-              aria-label="Dia anterior"
-            >
-              <ChevronLeft size={18} />
-            </button>
-            <button
-              className="grid h-10 w-10 place-items-center rounded-lg border border-white/10 bg-white/[0.04] text-zinc-300"
-              aria-label="Proximo dia"
-            >
-              <ChevronRight size={18} />
-            </button>
-          </div>
-        </header>
+    <>
+      {(!isLoaded || !isSignedIn) ? (
+        <LoginScreen />
+      ) : (
+        <main className="min-h-dvh overflow-hidden bg-coal text-zinc-50 sm:grid sm:place-items-center sm:p-6">
+          <div className="subtle-grid fixed inset-0 opacity-25" />
+          <section className="relative mx-auto flex h-dvh w-full max-w-[430px] flex-col overflow-hidden bg-coal px-4 py-4 shadow-2xl shadow-black/50 sm:h-[860px] sm:max-h-[92dvh] sm:rounded-[2rem] sm:border sm:border-white/10">
+            <header className="flex shrink-0 items-center justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-acid">
+                  Ratos de Academia
+                </p>
+                <h1 className="mt-1 text-2xl font-black text-white">
+                  {selectedLabel}
+                </h1>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  className="grid h-10 w-10 place-items-center rounded-lg border border-white/10 bg-white/[0.04] text-zinc-300"
+                  aria-label="Dia anterior"
+                >
+                  <ChevronLeft size={18} />
+                </button>
+                <button
+                  className="grid h-10 w-10 place-items-center rounded-lg border border-white/10 bg-white/[0.04] text-zinc-300"
+                  aria-label="Proximo dia"
+                >
+                  <ChevronRight size={18} />
+                </button>
+                <div className="grid h-10 w-10 place-items-center rounded-lg border border-white/10 bg-white/[0.04]">
+                  <UserButton
+                    appearance={{
+                      elements: {
+                        avatarBox: "h-7 w-7"
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+            </header>
 
-        <section className="mt-4 shrink-0 rounded-lg border border-white/10 bg-white/[0.045] p-3 backdrop-blur-xl">
-          <div className="grid grid-cols-7 gap-1.5">
-            {week.map((day) => (
-              <button
-                key={day.date}
-                onClick={() => setSelected(day.date)}
-                className={[
-                  "relative flex h-[58px] flex-col items-center justify-center rounded-lg border text-center transition",
-                  selected === day.date
-                    ? "border-acid bg-acid text-black"
-                    : "border-white/10 bg-black/20 text-zinc-300"
-                ].join(" ")}
-              >
-                <span className="text-[11px] font-semibold">{day.day}</span>
-                <span className="text-base font-black">{day.date}</span>
-                <span
-                  className={[
-                    "absolute bottom-1.5 h-1 w-1 rounded-full",
-                    selected === day.date
-                      ? "bg-black"
-                      : day.status === "done"
-                        ? "bg-acid"
-                        : day.status === "rest"
-                          ? "bg-zinc-600"
-                          : "bg-ember"
-                  ].join(" ")}
-                />
-              </button>
-            ))}
-          </div>
-        </section>
+            <section className="mt-4 shrink-0 rounded-lg border border-white/10 bg-white/[0.045] p-3 backdrop-blur-xl">
+              <div className="grid grid-cols-7 gap-1.5">
+                {week.map((day) => (
+                  <button
+                    key={day.date}
+                    onClick={() => setSelected(day.date)}
+                    className={[
+                      "relative flex h-[58px] flex-col items-center justify-center rounded-lg border text-center transition",
+                      selected === day.date
+                        ? "border-acid bg-acid text-black"
+                        : "border-white/10 bg-black/20 text-zinc-300"
+                    ].join(" ")}
+                  >
+                    <span className="text-[11px] font-semibold">{day.day}</span>
+                    <span className="text-base font-black">{day.date}</span>
+                    <span
+                      className={[
+                        "absolute bottom-1.5 h-1 w-1 rounded-full",
+                        selected === day.date
+                          ? "bg-black"
+                          : day.status === "done"
+                            ? "bg-acid"
+                            : day.status === "rest"
+                              ? "bg-zinc-600"
+                              : "bg-ember"
+                      ].join(" ")}
+                    />
+                  </button>
+                ))}
+              </div>
+            </section>
 
-        <section className="mt-3 shrink-0 rounded-lg border border-acid/20 bg-acid/10 p-3">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-medium text-zinc-400">Progresso</p>
-              <p className="text-lg font-black text-white">1/6 concluido</p>
-            </div>
-            <div className="flex items-center gap-2 text-right">
-              <Metric label="Treinos" value="5x" />
-              <Metric label="Cardio" value="150m" />
-              <Metric label="Serie" value="12d" />
-            </div>
-          </div>
-          <div className="mt-3 h-2 rounded-full bg-black/35">
-            <div className="h-2 w-1/6 rounded-full bg-acid" />
-          </div>
-        </section>
+            <section className="mt-3 shrink-0 rounded-lg border border-acid/20 bg-acid/10 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-medium text-zinc-400">Progresso</p>
+                  <p className="text-lg font-black text-white">1/6 concluido</p>
+                </div>
+                <div className="flex items-center gap-2 text-right">
+                  <Metric label="Treinos" value="5x" />
+                  <Metric label="Cardio" value="150m" />
+                  <Metric label="Serie" value="12d" />
+                </div>
+              </div>
+              <div className="mt-3 h-2 rounded-full bg-black/35">
+                <div className="h-2 w-1/6 rounded-full bg-acid" />
+              </div>
+            </section>
 
-        <section className="mt-3 min-h-0 flex-1 space-y-2 overflow-hidden">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-bold text-white">Plano do dia</h2>
-            <button
-              onClick={() => setShowAdd(true)}
-              className="flex h-9 items-center gap-1.5 rounded-lg bg-acid px-3 text-xs font-black text-black"
-            >
-              <Plus size={15} />
-              Add
-            </button>
-          </div>
-          <div className="mobile-scroll h-full space-y-2 overflow-y-auto overscroll-contain pb-2 pr-1">
-            {planItems.map((item) => (
-              <PlanRow
-                key={item.title}
-                item={item}
-                onEdit={() => setEditing(item)}
-              />
-            ))}
-          </div>
-        </section>
+            <section className="mt-3 min-h-0 flex-1 space-y-2 overflow-hidden">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-bold text-white">Plano do dia</h2>
+                <button
+                  onClick={() => setShowAdd(true)}
+                  className="flex h-9 items-center gap-1.5 rounded-lg bg-acid px-3 text-xs font-black text-black"
+                >
+                  <Plus size={15} />
+                  Add
+                </button>
+              </div>
+              <div className="mobile-scroll h-full space-y-2 overflow-y-auto overscroll-contain pb-2 pr-1">
+                {planItems.map((item) => (
+                  <PlanRow
+                    key={item.title}
+                    item={item}
+                    onEdit={() => setEditing(item)}
+                  />
+                ))}
+              </div>
+            </section>
 
-        <nav className="mt-3 grid h-14 shrink-0 grid-cols-4 rounded-lg border border-white/10 bg-white/[0.055] p-1 backdrop-blur-xl">
-          <NavButton active icon={HomeIcon} label="Hoje" />
-          <NavButton icon={CalendarDays} label="Agenda" />
-          <NavButton icon={HeartPulse} label="Saude" />
-          <NavButton icon={Settings2} label="Ajustes" />
-        </nav>
-      </section>
+            <nav className="mt-3 grid h-14 shrink-0 grid-cols-4 rounded-lg border border-white/10 bg-white/[0.055] p-1 backdrop-blur-xl">
+              <NavButton active icon={HomeIcon} label="Hoje" />
+              <NavButton icon={CalendarDays} label="Agenda" />
+              <NavButton icon={HeartPulse} label="Saude" />
+              <NavButton icon={Settings2} label="Ajustes" />
+            </nav>
+          </section>
 
-      {editing ? <EditSheet item={editing} onClose={() => setEditing(null)} /> : null}
-      {showAdd ? <AddSheet onClose={() => setShowAdd(false)} /> : null}
-    </main>
+          {editing ? <EditSheet item={editing} onClose={() => setEditing(null)} /> : null}
+          {showAdd ? <AddSheet onClose={() => setShowAdd(false)} /> : null}
+        </main>
+      )}
+    </>
   );
 }
 
-function LoginScreen({ onEnter }: { onEnter: () => void }) {
+function LoginScreen() {
   return (
     <main className="grid h-dvh overflow-hidden bg-coal px-5 py-5 text-white sm:place-items-center sm:p-6">
       <div className="subtle-grid fixed inset-0 opacity-25" />
@@ -275,30 +287,25 @@ function LoginScreen({ onEnter }: { onEnter: () => void }) {
         </div>
 
         <div className="rounded-lg border border-white/10 bg-black/25 p-3">
-          <label className="block">
-            <span className="mb-1.5 block text-xs text-zinc-400">Email</span>
-            <input
-              defaultValue="atleta@ratos.fit"
-              className="h-10 w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 text-sm text-white outline-none focus:border-acid/60"
-            />
-          </label>
-          <label className="mt-2 block">
-            <span className="mb-1.5 block text-xs text-zinc-400">Senha</span>
-            <input
-              type="password"
-              defaultValue="ratos123"
-              className="h-10 w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 text-sm text-white outline-none focus:border-acid/60"
-            />
-          </label>
+          <div className="flex items-center gap-3">
+            <div className="grid h-10 w-10 place-items-center rounded-lg bg-acid/10 text-acid">
+              <LogIn size={18} />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-white">Acesse com Clerk</p>
+              <p className="mt-0.5 text-xs leading-5 text-zinc-400">
+                Entre ou crie sua conta para abrir seu painel de treinos.
+              </p>
+            </div>
+          </div>
         </div>
 
-        <button
-          onClick={onEnter}
-          className="flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-acid text-sm font-black text-black"
-        >
-          <LogIn size={18} />
-          Entrar
-        </button>
+        <SignInButton mode="modal">
+          <button className="flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-acid text-sm font-black text-black">
+            <LogIn size={18} />
+            Entrar
+          </button>
+        </SignInButton>
       </section>
     </main>
   );

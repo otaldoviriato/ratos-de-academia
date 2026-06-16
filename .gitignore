@@ -4,6 +4,7 @@ node_modules/
 
 *.log
 *.err.log
+tsconfig.tsbuildinfo
 
 .env
 .env.*
