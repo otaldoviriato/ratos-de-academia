@@ -1,0 +1,11 @@
+.next/
+node_modules/
+.npm-cache/
+
+*.log
+*.err.log
+
+.env
+.env.*
+
+!.env.example

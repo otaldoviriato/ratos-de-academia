@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-height: 100vh;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 20% 0%, rgba(182, 243, 72, 0.11), transparent 34rem),
+    radial-gradient(circle at 100% 20%, rgba(82, 214, 255, 0.09), transparent 30rem),
+    #07090d;
+  color: #f7f8f4;
+}
+
+html {
+  overflow: hidden;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+.glass-panel {
+  background: rgba(16, 20, 29, 0.76);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 24px 90px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(22px);
+}
+
+.subtle-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+
+.mobile-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(182, 243, 72, 0.45) transparent;
+}
+
+.mobile-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.mobile-scroll::-webkit-scrollbar-thumb {
+  background: rgba(182, 243, 72, 0.45);
+  border-radius: 999px;
+}
