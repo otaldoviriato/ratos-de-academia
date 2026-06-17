@@ -1,6 +1,6 @@
 "use client";
 
-import { SignInButton, UserButton, useUser } from "@clerk/nextjs";
+import { SignIn, UserButton, useUser } from "@clerk/nextjs";
 import {
   Activity,
   CalendarDays,
@@ -408,57 +408,11 @@ export default function Home() {
 
 function LoginScreen() {
   return (
-    <main className="grid h-dvh overflow-hidden bg-coal px-5 py-5 text-white sm:place-items-center sm:p-6">
+    <main className="grid min-h-dvh place-items-center bg-coal p-4">
       <div className="subtle-grid fixed inset-0 opacity-25" />
-      <section className="relative mx-auto flex h-full w-full max-w-[430px] flex-col justify-between overflow-hidden rounded-[1.35rem] border border-white/10 bg-white/[0.04] p-5 shadow-2xl shadow-black/45 backdrop-blur-xl sm:h-[760px]">
-        <div className="flex items-center justify-between">
-          <div className="grid h-12 w-12 place-items-center rounded-lg bg-acid text-black shadow-glow">
-            <Dumbbell size={25} />
-          </div>
-          <span className="rounded-lg border border-acid/20 bg-acid/10 px-3 py-1.5 text-xs font-bold text-acid">
-            PRODUÇÃO
-          </span>
-        </div>
-
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.22em] text-acid">
-            Ratos de Academia
-          </p>
-          <h1 className="mt-3 text-[2.65rem] font-black leading-[0.92] text-white">
-            Seu progresso diário.
-          </h1>
-          <p className="mt-4 text-sm leading-6 text-zinc-300">
-            Monitore treinos de musculação, dieta, exercícios aeróbicos, exames e remédios em um só lugar.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-3 gap-2">
-          <LoginStat icon={CalendarDays} label="Agenda" value="Registros" />
-          <LoginStat icon={Dumbbell} label="Treino" value="Musculação" />
-          <LoginStat icon={Flame} label="Metas" value="Histórico" />
-        </div>
-
-        <div className="rounded-lg border border-white/10 bg-black/25 p-3">
-          <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-lg bg-acid/10 text-acid">
-              <LogIn size={18} />
-            </div>
-            <div>
-              <p className="text-sm font-bold text-white">Acesse com Clerk</p>
-              <p className="mt-0.5 text-xs leading-5 text-zinc-400">
-                Entre com sua conta pessoal para ver e ajustar sua rotina.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <SignInButton mode="modal">
-          <button className="flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-acid text-sm font-black text-black hover:opacity-95">
-            <LogIn size={18} />
-            Entrar no Painel
-          </button>
-        </SignInButton>
-      </section>
+      <div className="relative z-10 w-full max-w-[400px]">
+        <SignIn routing="hash" />
+      </div>
     </main>
   );
 }
