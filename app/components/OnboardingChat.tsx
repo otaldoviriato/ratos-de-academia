@@ -437,7 +437,7 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
   }, [currentWorkoutsKeys, selectedWorkoutTab]);
 
   return (
-    <main className="min-h-dvh overflow-hidden bg-coal text-zinc-50 sm:flex sm:flex-col sm:items-center sm:justify-center sm:p-6">
+    <main className="h-[100svh] overflow-hidden bg-coal text-zinc-50 sm:min-h-dvh sm:flex sm:flex-col sm:items-center sm:justify-center sm:p-6">
       <div className="subtle-grid fixed inset-0 opacity-25 animate-[fadeIn_0.5s_ease-out]" />
 
       {/* Header Superior para Desktop */}
@@ -487,7 +487,7 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
       </header>
 
       {/* Seção principal do chat, com bordas arredondadas e card no desktop */}
-      <section className="relative mx-auto flex h-dvh w-full max-w-[430px] md:max-w-5xl flex-col overflow-hidden bg-coal shadow-2xl shadow-black/50 sm:h-[800px] md:h-[750px] sm:max-h-[85dvh] sm:rounded-[2rem] sm:border sm:border-white/10">
+      <section className="relative mx-auto flex h-full w-full max-w-[430px] md:max-w-5xl flex-col overflow-hidden bg-coal shadow-2xl shadow-black/50 sm:h-[800px] md:h-[750px] sm:max-h-[85dvh] sm:rounded-[2rem] sm:border sm:border-white/10">
         
         {/* Header Superior Interno (apenas visível no Mobile) */}
         <header className="flex sm:hidden items-center justify-between px-6 py-4 border-b border-white/10 bg-graphite/60 backdrop-blur-xl shrink-0">
@@ -537,7 +537,7 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
         </header>
 
         {/* Main Grid */}
-        <div className="flex flex-col md:flex-row flex-1 overflow-hidden relative">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden relative md:flex-row">
         {/* Coluna 1: Mascote do Ratão Gigante (Apenas no Desktop) */}
         <div className="hidden md:flex flex-col items-center justify-end w-[280px] lg:w-[360px] shrink-0 border-r border-white/10 bg-black/20 p-6 overflow-hidden relative backdrop-blur-md">
           {/* Brilho verde de fundo */}
@@ -567,9 +567,9 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
         </div>
 
         {/* Coluna Esquerda: Chat (Agora Coluna 2) */}
-        <div className="flex flex-col flex-1 min-w-0 bg-black/30 h-full">
+        <div className="flex min-h-0 flex-1 min-w-0 flex-col bg-black/30">
           {/* Corpo do chat */}
-          <div className="flex-1 overflow-y-auto p-6 space-y-6 scrollbar-thin scrollbar-thumb-black/45">
+          <div className="mobile-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain p-6 space-y-6 scrollbar-thin scrollbar-thumb-black/45">
             {messages.map((msg, idx) => {
               if (msg.content.startsWith("[Sistema")) return null; // Oculta logs de sistema
               const isAi = msg.role === "assistant";
@@ -631,7 +631,7 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
           </div>
 
           {/* Área de Input */}
-          <div className="p-4 border-t border-white/10 bg-black/30 shrink-0 backdrop-blur-md">
+          <div className="shrink-0 border-t border-white/10 bg-black/30 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] backdrop-blur-md">
             {uploadError && (
               <div className="mb-2 text-xs text-rose-500 bg-rose-950/20 border border-rose-900/30 px-3 py-2 rounded-lg">
                 ⚠️ {uploadError}
