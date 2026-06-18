@@ -123,13 +123,21 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
     }
   }, [finished]);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Auto-scroll para a última mensagem
+  // Auto-scroll apenas no painel interno de mensagens, sem mover a viewport do navegador.
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const scrollArea = chatScrollRef.current;
+    if (!scrollArea) return;
+
+    requestAnimationFrame(() => {
+      scrollArea.scrollTo({
+        top: scrollArea.scrollHeight,
+        behavior: "smooth"
+      });
+    });
   }, [messages, isTyping]);
 
   // Reinicializa o estado interno se um novo perfil (ex: modo de ajustes) for carregado
@@ -146,7 +154,7 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
   // Devolve o foco ao input de texto assim que a IA termina de digitar/processar
   useEffect(() => {
     if (!isTyping && !isUploading && !finished) {
-      inputRef.current?.focus();
+      inputRef.current?.focus({ preventScroll: true });
     }
   }, [isTyping, isUploading, finished]);
 
@@ -437,7 +445,7 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
   }, [currentWorkoutsKeys, selectedWorkoutTab]);
 
   return (
-    <main className="h-[100svh] overflow-hidden bg-coal text-zinc-50 sm:min-h-dvh sm:flex sm:flex-col sm:items-center sm:justify-center sm:p-6">
+    <main className="fixed inset-0 h-[100dvh] w-full overflow-hidden bg-coal text-zinc-50 sm:static sm:h-auto sm:min-h-dvh sm:flex sm:flex-col sm:items-center sm:justify-center sm:p-6">
       <div className="subtle-grid fixed inset-0 opacity-25 animate-[fadeIn_0.5s_ease-out]" />
 
       {/* Header Superior para Desktop */}
@@ -569,7 +577,7 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
         {/* Coluna Esquerda: Chat (Agora Coluna 2) */}
         <div className="flex min-h-0 flex-1 min-w-0 flex-col bg-black/30">
           {/* Corpo do chat */}
-          <div className="mobile-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain p-6 space-y-6 scrollbar-thin scrollbar-thumb-black/45">
+          <div ref={chatScrollRef} className="mobile-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain p-6 space-y-6 scrollbar-thin scrollbar-thumb-black/45">
             {messages.map((msg, idx) => {
               if (msg.content.startsWith("[Sistema")) return null; // Oculta logs de sistema
               const isAi = msg.role === "assistant";
@@ -627,7 +635,6 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
               </div>
             )}
             
-            <div ref={messagesEndRef} />
           </div>
 
           {/* Área de Input */}
