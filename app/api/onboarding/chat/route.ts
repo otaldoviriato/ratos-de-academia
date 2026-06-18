@@ -411,6 +411,44 @@ function normalizeWorkoutPlan(data: OnboardingResponse, currentPreviewData: any,
   };
 }
 
+function isWorkoutPlanRequest(messages: ChatMessage[], currentPreviewData: any) {
+  const lastMessage = normalizeText(lastUserText(messages));
+  const hasExistingWorkout = currentPreviewData?.workouts && Object.keys(currentPreviewData.workouts).length > 0;
+
+  return (
+    lastMessage.includes("treino") ||
+    lastMessage.includes("musculacao") ||
+    lastMessage.includes("musculação") ||
+    lastMessage.includes("abc") ||
+    lastMessage.includes("abcd") ||
+    lastMessage.includes("abcde") ||
+    lastMessage.includes("refaz") ||
+    lastMessage.includes("reformula") ||
+    (hasExistingWorkout && (lastMessage.includes("de novo") || lastMessage.includes("faz de novo") || lastMessage.includes("mudar")))
+  );
+}
+
+function buildDeterministicWorkoutResponse(currentPreviewData: any, messages: ChatMessage[]): OnboardingResponse {
+  const previewData = mergePreviewData(currentPreviewData, {});
+  const trainingDays = inferTrainingDays(previewData, messages);
+  const experience = inferExperience(previewData, messages);
+  const templates = buildWorkoutTemplates(trainingDays, experience);
+
+  return {
+    message: formatWorkoutMessage(templates),
+    previewData: {
+      ...previewData,
+      profile: {
+        ...(previewData.profile || {}),
+        trainingDaysPerWeek: trainingDays,
+        experience
+      },
+      workouts: templatesToWorkouts(templates)
+    },
+    finished: false
+  };
+}
+
 export async function POST(req: Request) {
   try {
     const { userId } = await auth();
@@ -424,6 +462,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Histórico de mensagens inválido" }, { status: 400 });
     }
     const chatMessages = messages as ChatMessage[];
+
+    if (isWorkoutPlanRequest(chatMessages, currentPreviewData)) {
+      return NextResponse.json(buildDeterministicWorkoutResponse(currentPreviewData, chatMessages));
+    }
 
     // Prompt de sistema que orienta a IA a ser amigável e guiar o onboarding passo a passo
     const systemPrompt = `Você é o assistente virtual do "Ratos de Academia", um aplicativo de planejamento e registro de treinos e hábitos saudáveis.
