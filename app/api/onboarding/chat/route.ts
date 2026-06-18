@@ -58,8 +58,12 @@ function hasIncompleteDelivery(message: string) {
     "aqui esta o treino para voce",
     "aqui esta a dieta para voce",
     "segue o treino",
-    "segue a dieta"
-  ].some((pattern) => text.endsWith(pattern));
+    "segue a dieta",
+    "aqui esta uma nova proposta",
+    "aqui esta a nova proposta",
+    "considerando cinco dias de treino por semana",
+    "considerando 5 dias de treino por semana"
+  ].some((pattern) => text.endsWith(pattern) || text.endsWith(`${pattern}:`));
 }
 
 function hasWorkflowChange(data: OnboardingResponse, previousPreviewData: any) {
@@ -108,17 +112,26 @@ function hasWeakAdvancedWorkout(data: OnboardingResponse, currentPreviewData: an
   if (!nextWorkouts || typeof nextWorkouts !== "object") return false;
 
   const conversationText = allConversationText(messages);
-  if (!isAdvancedContext(conversationText, data.previewData || currentPreviewData || {})) return false;
   if (hasExplicitWorkoutConstraints(conversationText)) return false;
 
   const workoutDays = Object.values(nextWorkouts).filter(Array.isArray) as any[][];
   if (workoutDays.length === 0) return false;
 
-  const hasWorkoutRequest = normalizeText(lastUserText(messages)).includes("treino");
+  const lastUserMessage = normalizeText(lastUserText(messages));
+  const hasWorkoutRequest =
+    lastUserMessage.includes("treino") ||
+    lastUserMessage.includes("faz de novo") ||
+    lastUserMessage.includes("de novo") ||
+    lastUserMessage.includes("refaz") ||
+    lastUserMessage.includes("reformula");
   const workoutsChanged = JSON.stringify(currentPreviewData?.workouts || {}) !== JSON.stringify(nextWorkouts || {});
   if (!hasWorkoutRequest && !workoutsChanged) return false;
 
-  return workoutDays.every((day) => day.length <= 3);
+  const allDaysAreTiny = workoutDays.every((day) => day.length <= 3);
+  const hasManyWorkoutDays = workoutDays.length >= 4;
+  const advancedContext = isAdvancedContext(conversationText, data.previewData || currentPreviewData || {});
+
+  return allDaysAreTiny && (hasManyWorkoutDays || advancedContext);
 }
 
 function validateOnboardingResponse(data: OnboardingResponse, currentPreviewData: any, messages: ChatMessage[]) {
@@ -142,6 +155,28 @@ function validateOnboardingResponse(data: OnboardingResponse, currentPreviewData
   }
 
   return failures;
+}
+
+function buildGuardFeedback(validationFailures: string[]) {
+  return `A resposta anterior foi bloqueada pelo validador do produto pelos seguintes motivos:
+${validationFailures.map((failure) => `- ${failure}`).join("\n")}
+
+Refaça a resposta agora. Regras inegociáveis:
+- Não termine a mensagem com dois pontos.
+- Não escreva "aqui está", "segue" ou "nova proposta" se a mensagem não tiver um resumo concreto depois.
+- Não prometa mensagem futura. Entregue tudo neste mesmo turno.
+- Se o usuário pediu para refazer treino ou dieta, atualize o previewData correspondente agora.
+- Para treino normal de musculação sem restrição clara, não devolva uma divisão inteira com sessões rasas de 2 ou 3 exercícios por dia. A prescrição precisa parecer defensável para o perfil informado.
+
+Retorne apenas JSON puro.`;
+}
+
+function buildSafeFallback(data: OnboardingResponse, currentPreviewData: any): OnboardingResponse {
+  return {
+    message: "Não consegui gerar uma proposta boa o suficiente nesse formato. Me diga se você quer manter a divisão atual ou mudar frequência, objetivo ou algum grupo muscular, que eu refaço a prescrição completa.",
+    previewData: currentPreviewData || data.previewData || {},
+    finished: false
+  };
 }
 
 export async function POST(req: Request) {
@@ -262,7 +297,7 @@ Você DEVE incluir integralmente todos esses dados nas chaves correspondentes do
           ...(guardFeedback ? [{ role: "system" as const, content: guardFeedback }] : []),
           ...chatMessages
         ],
-        temperature: 0.7,
+        temperature: guardFeedback ? 0.3 : 0.7,
       });
 
       const contentText = response.choices[0].message?.content || "{}";
@@ -270,13 +305,15 @@ Você DEVE incluir integralmente todos esses dados nas chaves correspondentes do
     };
 
     let data = await runCompletion();
-    const validationFailures = validateOnboardingResponse(data, currentPreviewData, chatMessages);
+    let validationFailures = validateOnboardingResponse(data, currentPreviewData, chatMessages);
+
+    for (let attempt = 0; validationFailures.length > 0 && attempt < 3; attempt++) {
+      data = await runCompletion(buildGuardFeedback(validationFailures));
+      validationFailures = validateOnboardingResponse(data, currentPreviewData, chatMessages);
+    }
 
     if (validationFailures.length > 0) {
-      data = await runCompletion(`A resposta anterior foi bloqueada pelo validador do produto pelos seguintes motivos:
-${validationFailures.map((failure) => `- ${failure}`).join("\n")}
-
-Refaça a resposta agora. Ela precisa ser completa neste mesmo turno, sem prometer mensagem futura. Se o usuário pediu para refazer treino ou dieta, atualize o previewData correspondente agora e escreva uma mensagem finalizada resumindo concretamente o que mudou. Retorne apenas JSON puro.`);
+      data = buildSafeFallback(data, currentPreviewData);
     }
 
     return NextResponse.json(data);
