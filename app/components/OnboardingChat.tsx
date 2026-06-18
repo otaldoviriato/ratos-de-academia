@@ -14,10 +14,11 @@ import {
   User, 
   Scale, 
   Sparkles,
-  X
+  X,
+  RotateCw
 } from "lucide-react";
 import { UserButton } from "@clerk/nextjs";
-import { completeOnboardingAction, saveOnboardingProgressAction, cancelOnboardingAdjustmentAction, Plan, UserProfile } from "../actions";
+import { completeOnboardingAction, saveOnboardingProgressAction, cancelOnboardingAdjustmentAction, resetOnboardingAction, Plan, UserProfile } from "../actions";
 
 function mergePreviewData(prev: any, next: any) {
   if (!next) return prev;
@@ -88,6 +89,13 @@ type OnboardingChatProps = {
   onComplete: () => void;
 };
 
+const initialOnboardingMessages: Message[] = [
+  {
+    role: "assistant",
+    content: "E aí, maromba! Seja muito bem-vindo ao Ratos de Academia! 💪🔥\n\nEu sou o Ratão, seu parceiro e mascote oficial de treinos. Estou aqui para te ajudar a estruturar toda a sua rotina de ferro sem complicação.\n\nPara a gente começar a planejar: qual é o seu gênero?"
+  }
+];
+
 function formatFrequencyLabel(freq: any): string {
   if (!freq) return "Diário";
   if (freq.type === "daily") return "Diário";
@@ -117,10 +125,7 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
       return profile.onboardingState.messages;
     }
     return [
-      {
-        role: "assistant",
-        content: "E aí, maromba! Seja muito bem-vindo ao Ratos de Academia! 💪🔥\n\nEu sou o Ratão, seu parceiro e mascote oficial de treinos. Estou aqui para te ajudar a estruturar toda a sua rotina de ferro sem complicação.\n\nPara a gente começar a planejar: qual é o seu gênero?"
-      }
+      ...initialOnboardingMessages
     ];
   });
   const [input, setInput] = useState("");
@@ -135,6 +140,20 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
     return profile?.onboardingState?.finished || false;
   });
   const [showPreview, setShowPreview] = useState(false);
+
+  const handleResetOnboarding = async () => {
+    try {
+      await resetOnboardingAction();
+      setMessages([...initialOnboardingMessages]);
+      setInput("");
+      setPreviewData({});
+      setFinished(false);
+      setShowPreview(false);
+      setUploadError("");
+    } catch (err) {
+      console.error("Erro ao resetar onboarding:", err);
+    }
+  };
 
   // Auto-salvar quando finished for true
   useEffect(() => {
@@ -517,7 +536,15 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
                   avatarBox: "h-5 w-5"
                 }
               }}
-            />
+            >
+              <UserButton.MenuItems>
+                <UserButton.Action
+                  label="Resetar onboarding"
+                  labelIcon={<RotateCw className="h-4 w-4" />}
+                  onClick={handleResetOnboarding}
+                />
+              </UserButton.MenuItems>
+            </UserButton>
           </div>
         </div>
       </header>
@@ -568,7 +595,15 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
                     avatarBox: "h-6 w-6"
                   }
                 }}
-              />
+              >
+                <UserButton.MenuItems>
+                  <UserButton.Action
+                    label="Resetar onboarding"
+                    labelIcon={<RotateCw className="h-4 w-4" />}
+                    onClick={handleResetOnboarding}
+                  />
+                </UserButton.MenuItems>
+              </UserButton>
             </div>
           </div>
         </header>
