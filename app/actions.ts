@@ -306,8 +306,93 @@ export async function getDailyActivities(dateStr: string): Promise<ActivityItem[
     }
   }
 
+  // Busca projeto ativo do usuário para injetar tarefa de medição periódica
+  const project = await db.collection("projects").findOne({
+    userId,
+    isDeleted: { $ne: true },
+    status: "active"
+  }) as unknown as Project | null;
+
+  let hasActiveProjectMeasurementDay = false;
+
+  if (project) {
+    const [y1, m1, d1] = project.startDate.split("-").map(Number);
+    const [y2, m2, d2] = dateStr.split("-").map(Number);
+    const date1 = new Date(Date.UTC(y1, m1 - 1, d1));
+    const date2 = new Date(Date.UTC(y2, m2 - 1, d2));
+    const diffTime = date2.getTime() - date1.getTime();
+    const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffDays >= 0 && diffDays <= project.durationDays) {
+      let isMeasurementDay = false;
+      switch (project.measurementFrequency) {
+        case "daily":
+          isMeasurementDay = true;
+          break;
+        case "weekly":
+          isMeasurementDay = diffDays % 7 === 0;
+          break;
+        case "fortnightly":
+          isMeasurementDay = diffDays % 15 === 0;
+          break;
+        case "monthly":
+          isMeasurementDay = diffDays % 30 === 0;
+          break;
+      }
+
+      if (isMeasurementDay) {
+        hasActiveProjectMeasurementDay = true;
+        // Verifica se há ocorrência de bioimpedância para este dia
+        const occurrence = occurrences.find((o) => o.type === "bioimpedancia" && !o.planId);
+        
+        let status: "pending" | "done" | "skipped" = "pending";
+        let details: PlanDetails = { bio: {} };
+
+        if (occurrence) {
+          status = occurrence.status;
+          details = occurrence.details || { bio: {} };
+        } else {
+          // Verifica se existe medição no projeto para a data
+          const measurement = project.measurements?.find((m) => m.date === dateStr);
+          if (measurement) {
+            status = "done";
+            details = {
+              bio: {
+                weight: measurement.weight,
+                fatPct: measurement.fatPct,
+                muscleMass: measurement.muscleMass,
+                done: true
+              }
+            };
+          }
+        }
+
+        activities.push({
+          id: occurrence?._id || `project-measurement-${project._id}-${dateStr}`,
+          occurrenceId: occurrence?._id,
+          type: "bioimpedancia",
+          title: project.metricType === "composition" ? "Medição de Composição" : "Medição de Peso",
+          tag: "Projeto",
+          done: status === "done",
+          status,
+          details,
+        });
+      }
+    }
+  }
+
   // Busca ocorrências avulsas (sem planId) criadas para esse dia
-  const extraOccurrences = occurrences.filter((o) => !o.planId);
+  const extraOccurrences = occurrences.filter((o) => {
+    if (!o.planId) {
+      // Evita duplicar se for a medição de bioimpedância do projeto
+      if (o.type === "bioimpedancia" && hasActiveProjectMeasurementDay) {
+        return false;
+      }
+      return true;
+    }
+    return false;
+  });
+
   for (const occ of extraOccurrences) {
     activities.push({
       id: occ._id!,
@@ -441,6 +526,34 @@ export async function toggleActivity(
   if (!userId) throw new Error("Não autorizado");
 
   const db = await getDb();
+  
+  if (type === "bioimpedancia") {
+    const activeProject = await db.collection("projects").findOne({
+      userId,
+      status: "active",
+      isDeleted: { $ne: true }
+    });
+    if (activeProject) {
+      const newDone = !currentDone;
+      if (newDone) {
+        const profile = await db.collection("profiles").findOne({ userId });
+        const weight = profile?.biometrics?.weight || 70;
+        const fatPct = profile?.biometrics?.fatPct;
+        const muscleMass = profile?.biometrics?.muscleMass;
+        await addProjectMeasurementAction(activeProject._id.toString(), {
+          date: dateStr,
+          weight,
+          fatPct,
+          muscleMass
+        });
+      } else {
+        await deleteProjectMeasurementAction(activeProject._id.toString(), dateStr);
+      }
+      revalidatePath("/");
+      return;
+    }
+  }
+
   const newDone = !currentDone;
   const newStatus = newDone ? "done" : "pending";
 
@@ -550,6 +663,48 @@ export async function updateActivityOccurrence(
   if (!userId) throw new Error("Não autorizado");
 
   const db = await getDb();
+
+  if (type === "bioimpedancia") {
+    const activeProject = await db.collection("projects").findOne({
+      userId,
+      status: "active",
+      isDeleted: { $ne: true }
+    });
+    if (activeProject) {
+      if (forcedStatus === "skipped") {
+        await deleteProjectMeasurementAction(activeProject._id.toString(), dateStr);
+        if (occurrenceIdStr) {
+          await db.collection("occurrences").updateOne(
+            { _id: new ObjectId(occurrenceIdStr), userId },
+            { $set: { status: "skipped", details, updatedAt: new Date().toISOString() } }
+          );
+        } else {
+          await db.collection("occurrences").insertOne({
+            userId,
+            date: dateStr,
+            type: "bioimpedancia",
+            status: "skipped",
+            isOverride: true,
+            details,
+            updatedAt: new Date().toISOString()
+          });
+        }
+      } else {
+        if (details.bio?.weight) {
+          await addProjectMeasurementAction(activeProject._id.toString(), {
+            date: dateStr,
+            weight: Number(details.bio.weight),
+            fatPct: details.bio.fatPct !== undefined ? Number(details.bio.fatPct) : undefined,
+            muscleMass: details.bio.muscleMass !== undefined ? Number(details.bio.muscleMass) : undefined
+          });
+        } else {
+          await deleteProjectMeasurementAction(activeProject._id.toString(), dateStr);
+        }
+      }
+      revalidatePath("/");
+      return;
+    }
+  }
 
   // Calcula se a atividade deve ser considerada feita globalmente
   let status: "pending" | "done" | "skipped" = "pending";

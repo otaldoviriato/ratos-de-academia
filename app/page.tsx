@@ -29,7 +29,8 @@ import {
   Circle,
   TrendingUp,
   Scale,
-  Target
+  Target,
+  Upload
 } from "lucide-react";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import {
@@ -1557,6 +1558,48 @@ function EditSheet({
   const [details, setDetails] = useState<PlanDetails>(() => JSON.parse(JSON.stringify(item.details)));
   const [isSaving, setIsSaving] = useState(false);
 
+  const [isUploadingBio, setIsUploadingBio] = useState(false);
+  const [uploadBioError, setUploadBioError] = useState("");
+
+  const handleBioFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingBio(true);
+    setUploadBioError("");
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const response = await fetch("/api/onboarding/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      const resData = await response.json();
+
+      if (!response.ok) {
+        throw new Error(resData.error || "Erro ao analisar bioimpedância");
+      }
+
+      const extracted = resData.data;
+      const next = { ...details };
+      next.bio = {
+        ...next.bio,
+        weight: extracted.weight !== null && extracted.weight !== undefined ? extracted.weight : next.bio?.weight,
+        fatPct: extracted.fatPct !== null && extracted.fatPct !== undefined ? extracted.fatPct : next.bio?.fatPct,
+        muscleMass: extracted.muscleMass !== null && extracted.muscleMass !== undefined ? extracted.muscleMass : next.bio?.muscleMass,
+        done: true
+      };
+      setDetails(next);
+    } catch (err: any) {
+      setUploadBioError(err.message || "Erro ao processar imagem.");
+    } finally {
+      setIsUploadingBio(false);
+    }
+  };
+
   const todayStr = getLocalDateStr(new Date());
   const isFuture = dateStr > todayStr;
 
@@ -2283,18 +2326,44 @@ function EditSheet({
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-bold text-ember uppercase tracking-wider">Resultados de Bioimpedância</p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const next = { ...details };
-                    next.bio = {};
-                    setDetails(next);
-                  }}
-                  className="px-2 py-1 text-[10px] font-bold rounded border border-white/10 text-zinc-400 hover:text-red-400 hover:bg-white/5 transition cursor-pointer"
-                >
-                  Limpar Campos
-                </button>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="file"
+                    id="bio-upload-file"
+                    accept="image/*"
+                    onChange={handleBioFileUpload}
+                    className="hidden"
+                    disabled={isUploadingBio}
+                  />
+                  <label
+                    htmlFor="bio-upload-file"
+                    className={`px-2.5 py-1 text-[10px] font-bold rounded border flex items-center gap-1 transition cursor-pointer ${
+                      isUploadingBio
+                        ? "border-ember/30 bg-ember/10 text-ember animate-pulse pointer-events-none"
+                        : "border-white/10 text-zinc-400 hover:text-ember hover:bg-white/5"
+                    }`}
+                  >
+                    <Upload size={12} />
+                    {isUploadingBio ? "Analisando..." : "Analisar com IA"}
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = { ...details };
+                      next.bio = {};
+                      setDetails(next);
+                    }}
+                    className="px-2 py-1 text-[10px] font-bold rounded border border-white/10 text-zinc-400 hover:text-red-400 hover:bg-white/5 transition cursor-pointer"
+                  >
+                    Limpar Campos
+                  </button>
+                </div>
               </div>
+              {uploadBioError && (
+                <p className="text-[10px] text-red-400 font-bold bg-red-950/20 border border-red-900/30 p-2 rounded-lg">
+                  ⚠️ {uploadBioError}
+                </p>
+              )}
               <div className="bg-black/20 p-3 rounded-lg border border-white/5 space-y-3">
                 <div className="grid grid-cols-3 gap-2">
                   <label>
