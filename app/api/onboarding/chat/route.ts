@@ -560,11 +560,10 @@ SEQUÊNCIA DE ETAPAS (UMA PERGUNTA POR VEZ):
   1. Pergunte se ele possui exame de bioimpedância recente ou se prefere fornecer apenas peso e altura (e avise que ele pode anexar o exame em formato de foto).
   2. Se ele disser peso/altura: pergunte primeiro a altura (em cm). Depois, pergunte o peso (em kg).
   3. Se ele enviar a bioimpedância (injetado via sistema): confirme apenas os dados extraídos em uma frase simples e pergunte se estão corretos.
-- ETAPA 3 (CÁLCULO E MEDICAMENTOS):
+- ETAPA 3 (CÁLCULO):
   1. Calcule e apresente a TMB (Taxa Metabólica Basal) de forma resumida baseada nos dados.
-  2. Pergunte se ele faz uso de medicamentos, hormônios, anabolizantes ou suplementações que deseja monitorar, coletando nome, dosagem, horário e frequência exata (ex: todo dia, uma vez por semana, dias alternados). Esta etapa vem antes de dieta e treino porque esses dados podem mudar completamente a prescrição.
 - ETAPA 4 (OBJETIVO):
-  1. Depois de medicamentos/suplementações, pergunte qual é o objetivo principal dele: bulking (ganho de massa magra), cutting (emagrecimento) ou manutenção de uma vida saudável.
+  1. Pergunte qual é o objetivo principal dele: bulking (ganho de massa magra), cutting (emagrecimento) ou manutenção de uma vida saudável.
   2. Salve o objetivo em "previewData.profile.goal" usando apenas "bulking", "cutting" ou "manutencao".
 - ETAPA 5 (DIETA):
   1. Pergunte se ele já segue uma dieta ou quer uma sugestão.
@@ -588,8 +587,7 @@ SEQUÊNCIA DE ETAPAS (UMA PERGUNTA POR VEZ):
 
 REGRAS DO "previewData":
 - Só inclua os dados no "previewData" à medida que forem combinados e confirmados. Não adivinhe ou crie dados futuros.
-- Todo dado coletado deve ser preservado no "previewData": gênero, idade, tempo de treino, experiência derivada, objetivo, dias de treino por semana, biometria completa, TMB, dieta, treinos, aeróbico e medicamentos. Use todos esses dados como contexto ao criar treino ou dieta.
-- Medicamentos, hormônios, anabolizantes e suplementações coletados antes do objetivo devem ser considerados obrigatoriamente ao montar dieta e treino. Se houver uso de algo como durateston, testosterona, oxandrolona ou similares, não ignore esse dado na prescrição.
+- Todo dato coletado deve ser preservado no "previewData": gênero, idade, tempo de treino, experiência derivada, objetivo, dias de treino por semana, biometria completa, TMB, dieta, treinos e aeróbico. Use todos esses dados como contexto ao criar treino ou dieta.
 - Ao devolver "diet", mantenha as refeições em ordem cronológica natural do dia.
 - No campo "load" de "workouts", defina sempre a carga em kg (ex: "15kg", "25kg", "40kg"). Nunca use termos subjetivos ou percentuais de 1RM.
 - No campo "workouts", cada chave de treino (ex: "A", "B", "C") deve conter uma sessão completa e coerente para aquele dia, com exercícios, séries, repetições e carga em kg para todos.
@@ -622,16 +620,7 @@ REGRAS DO "previewData":
     "aerobic": {
       "name": string,
       "duration": number
-    },
-    "meds": Array<{ 
-      "name": string, 
-      "dose": string, 
-      "time": string,
-      "frequency": {
-        "type": "daily" | "weekdays" | "alternate" | "custom",
-        "daysOfWeek"?: Array<number> // [0=Domingo, 1=Segunda, etc.] se type for "custom"
-      }
-    }>
+    }
   }
 
 Retorne apenas o JSON puro, sem blocos de código markdown como \`\`\`json.`;
@@ -639,7 +628,7 @@ Retorne apenas o JSON puro, sem blocos de código markdown como \`\`\`json.`;
     let finalSystemPrompt = systemPrompt;
     if (currentPreviewData && Object.keys(currentPreviewData).length > 0) {
       finalSystemPrompt += `\n\nATENÇÃO: Estes são TODOS os dados estruturados coletados até agora e eles são a fonte de verdade para criar treino/dieta:\n${JSON.stringify(currentPreviewData)}\n
-Você DEVE usar esses dados como contexto clínico/prático: perfil, tempo de treino, experiência derivada, dias de treino, objetivo, biometria, TMB, gordura corporal, massa muscular, dieta, treinos, aeróbico e medicamentos. Também DEVE incluir integralmente esses dados nas chaves correspondentes do seu objeto "previewData" de retorno, realizando apenas as edições, inclusões ou exclusões solicitadas explicitamente pelo usuário na conversa. Nunca devolva chaves de treinos ("workouts"), dieta ("diet"), cardio ("aerobic"), perfil ("profile") ou biometria ("biometrics") vazias ou zeradas se esses dados já existiam no preview anterior e o usuário não pediu para excluí-los.`;
+Você DEVE usar esses dados como contexto clínico/prático: perfil, tempo de treino, experiência derivada, dias de treino, objetivo, biometria, TMB, gordura corporal, massa muscular, dieta, treinos e aeróbico. Também DEVE incluir integralmente esses dados nas chaves correspondentes do seu objeto "previewData" de retorno, realizando apenas as edições, inclusões ou exclusões solicitadas explicitamente pelo usuário na conversa. Nunca devolva chaves de treinos ("workouts"), dieta ("diet"), cardio ("aerobic"), perfil ("profile") ou biometria ("biometrics") vazias ou zeradas se esses dados já existiam no preview anterior e o usuário não pediu para excluí-los.`;
     }
 
     const response = await openai.chat.completions.create({

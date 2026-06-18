@@ -124,7 +124,6 @@ const addOptions: Array<{
   { type: "aerobico", title: "Cardio", text: "Tempo e intensidade", icon: Timer },
   { type: "bioimpedancia", title: "Bioimpedância", text: "Peso, gordura e massa", icon: Activity },
   { type: "sangue", title: "Exames de Sangue", text: "Sangue e recorrência", icon: TestTube2 },
-  { type: "medicamento", title: "Medicamento", text: "Dose e horário", icon: Pill },
   { type: "dieta", title: "Dieta", text: "Refeições e calorias", icon: Utensils }
 ];
 
@@ -900,52 +899,22 @@ export default function Home() {
                         </div>
                       )}
 
-                      {/* 4. CARDIO & MEDICAMENTOS */}
-                      {(userRoutine.aerobic?.name || (userRoutine.meds && userRoutine.meds.length > 0)) && (
-                        <div className="grid grid-cols-1 gap-4">
-                          {userRoutine.aerobic?.name && (
-                            <div className="bg-white/[0.02] border border-white/5 p-4 rounded-xl space-y-3">
-                              <h3 className="text-xs font-black text-zinc-400 uppercase tracking-wider flex items-center gap-2">
-                                <Timer className="w-3.5 h-3.5 text-zinc-500" />
-                                Cardio
-                              </h3>
-                              <div className="bg-black/20 border border-white/5 p-2.5 rounded-lg flex items-center justify-between text-[11px]">
-                                <div>
-                                  <div className="font-bold text-zinc-200">{userRoutine.aerobic.name}</div>
-                                  <div className="text-zinc-500 text-[10px]">Constante / Moderado</div>
-                                </div>
-                                <span className="text-[9px] font-bold text-cyan bg-cyan/10 border border-cyan/20 px-2 py-0.5 rounded">
-                                  {userRoutine.aerobic.duration} min
-                                </span>
-                              </div>
+                      {/* 4. CARDIO */}
+                      {userRoutine.aerobic?.name && (
+                        <div className="bg-white/[0.02] border border-white/5 p-4 rounded-xl space-y-3">
+                          <h3 className="text-xs font-black text-zinc-400 uppercase tracking-wider flex items-center gap-2">
+                            <Timer className="w-3.5 h-3.5 text-zinc-500" />
+                            Cardio
+                          </h3>
+                          <div className="bg-black/20 border border-white/5 p-2.5 rounded-lg flex items-center justify-between text-[11px]">
+                            <div>
+                              <div className="font-bold text-zinc-200">{userRoutine.aerobic.name}</div>
+                              <div className="text-zinc-500 text-[10px]">Constante / Moderado</div>
                             </div>
-                          )}
-
-                          {userRoutine.meds && userRoutine.meds.length > 0 && (
-                            <div className="bg-white/[0.02] border border-white/5 p-4 rounded-xl space-y-3">
-                              <h3 className="text-xs font-black text-zinc-400 uppercase tracking-wider flex items-center gap-2">
-                                <Pill className="w-3.5 h-3.5 text-zinc-500" />
-                                Medicamentos / Suplementos
-                              </h3>
-                              <div className="space-y-2">
-                                {userRoutine.meds.map((med: any, idx: number) => (
-                                  <div key={idx} className="bg-black/20 border border-white/5 p-2.5 rounded-lg flex justify-between items-center text-[11px]">
-                                    <div>
-                                      <div className="font-bold text-zinc-200">{med.name}</div>
-                                      <div className="text-zinc-500 text-[10px]">
-                                        {med.dose} {med.frequency ? `• ${formatFrequencyLabel(med.frequency)}` : ""}
-                                      </div>
-                                    </div>
-                                    {med.time && (
-                                      <span className="text-[9px] font-bold text-zinc-400 bg-black/25 border border-white/5 px-2 py-0.5 rounded">
-                                        🕒 {med.time}
-                                      </span>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
+                            <span className="text-[9px] font-bold text-cyan bg-cyan/10 border border-cyan/20 px-2 py-0.5 rounded">
+                              {userRoutine.aerobic.duration} min
+                            </span>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1482,13 +1451,7 @@ function PlanRow({
           desc: "Exame de Sangue",
           amount: `${item.details.bloodExams?.length || 0} itens`
         };
-      case "medicamento":
-        return {
-          icon: Pill,
-          accent: "text-violet-300",
-          desc: item.details.meds?.[0]?.name || "Medicamento",
-          amount: `${item.details.meds?.length || 0} itens`
-        };
+
       case "dieta":
         const mealsCount = item.details.meals?.length || item.details.dietItems?.length || 0;
         return {
@@ -1610,11 +1573,7 @@ function EditSheet({
   const [newExerciseReps, setNewExerciseReps] = useState(10);
   const [newExerciseLoad, setNewExerciseLoad] = useState("");
 
-  // Medicamento
-  const [showAddMed, setShowAddMed] = useState(false);
-  const [newMedName, setNewMedName] = useState("");
-  const [newMedDose, setNewMedDose] = useState("");
-  const [newMedTime, setNewMedTime] = useState("");
+
 
   // Cardio
   const [showAddCardio, setShowAddCardio] = useState(false);
@@ -1719,33 +1678,7 @@ function EditSheet({
     }
   };
 
-  // Remover Medicamento
-  const handleRemoveMed = (idx: number) => {
-    const next = { ...details };
-    if (next.meds) {
-      next.meds.splice(idx, 1);
-      setDetails(next);
-    }
-  };
 
-  // Adicionar Medicamento
-  const handleAddMed = () => {
-    if (!newMedName || !newMedDose) return;
-    const next = { ...details };
-    if (!next.meds) next.meds = [];
-    const isDone = item.status === "done";
-    next.meds.push({
-      name: newMedName,
-      dose: newMedDose,
-      time: newMedTime || undefined,
-      done: isDone ? true : undefined
-    });
-    setDetails(next);
-    setNewMedName("");
-    setNewMedDose("");
-    setNewMedTime("");
-    setShowAddMed(false);
-  };
 
   // Remover Exame
   const handleRemoveExam = (idx: number) => {
@@ -1855,8 +1788,6 @@ function EditSheet({
           } else if (nextDetails.dietItems) {
             nextDetails.dietItems = nextDetails.dietItems.map(it => ({ ...it, done: true }));
           }
-        } else if (item.type === "medicamento" && nextDetails.meds) {
-          nextDetails.meds = nextDetails.meds.map(it => ({ ...it, done: true }));
         } else if (item.type === "aerobico" && nextDetails.aerobic) {
           nextDetails.aerobic.done = true;
         } else if (item.type === "bioimpedancia" && nextDetails.bio) {
@@ -1876,8 +1807,6 @@ function EditSheet({
           } else if (nextDetails.dietItems) {
             nextDetails.dietItems = nextDetails.dietItems.map(it => ({ ...it, done: false }));
           }
-        } else if (item.type === "medicamento" && nextDetails.meds) {
-          nextDetails.meds = nextDetails.meds.map(it => ({ ...it, done: false }));
         } else if (item.type === "aerobico" && nextDetails.aerobic) {
           nextDetails.aerobic.done = false;
         } else if (item.type === "bioimpedancia" && nextDetails.bio) {
@@ -1898,8 +1827,6 @@ function EditSheet({
           } else if (nextDetails.dietItems) {
             nextDetails.dietItems = nextDetails.dietItems.map(({ done, ...rest }) => rest);
           }
-        } else if (item.type === "medicamento" && nextDetails.meds) {
-          nextDetails.meds = nextDetails.meds.map(({ done, ...rest }) => rest);
         } else if (item.type === "aerobico" && nextDetails.aerobic) {
           delete nextDetails.aerobic.done;
         } else if (item.type === "bioimpedancia" && nextDetails.bio) {
@@ -2349,102 +2276,7 @@ function EditSheet({
             </div>
           )}
 
-          {/* Medicamento */}
-          {item.type === "medicamento" && details.meds && (
-            <div className="space-y-3">
-              <p className="text-xs font-bold text-violet-300 uppercase tracking-wider">Medicamentos / Suplementos</p>
-              {details.meds.map((med, idx) => (
-                <div key={idx} className="flex items-center justify-between gap-3 bg-black/20 p-2.5 rounded-lg border border-white/5">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold truncate text-white">
-                      {med.name}
-                    </p>
-                    <p className="text-[11px] text-zinc-400">
-                      Dose: {med.dose} {med.time ? `• Horário: ${med.time}` : ""}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveMed(idx)}
-                    className="h-8 w-8 rounded-lg border border-white/10 text-zinc-400 hover:text-red-400 flex items-center justify-center transition cursor-pointer"
-                    title="Remover medicamento"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              ))}
 
-              {!showAddMed ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowAddMed(true);
-                    setNewMedName("");
-                    setNewMedDose("");
-                    setNewMedTime("");
-                  }}
-                  className="w-full h-9 rounded-lg border border-dashed border-white/10 hover:border-white/20 text-xs font-bold text-zinc-400 hover:text-white flex items-center justify-center gap-1.5 transition cursor-pointer"
-                >
-                  <Plus size={14} /> Adicionar Medicamento
-                </button>
-              ) : (
-                <div className="bg-black/30 p-3 rounded-lg border border-white/5 space-y-3">
-                  <div className="text-[11px] font-bold text-zinc-400 uppercase">Novo Medicamento</div>
-                  <div className="space-y-2">
-                    <label className="block">
-                      <span className="text-[10px] text-zinc-500 block mb-0.5">Nome</span>
-                      <input
-                        type="text"
-                        value={newMedName}
-                        onChange={(e) => setNewMedName(e.target.value)}
-                        placeholder="Ex: Creatina"
-                        className="w-full h-8 px-2 text-xs rounded bg-black/40 border border-white/10 text-white outline-none focus:border-violet-300"
-                      />
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <label className="block">
-                        <span className="text-[10px] text-zinc-500 block mb-0.5">Dose</span>
-                        <input
-                          type="text"
-                          value={newMedDose}
-                          onChange={(e) => setNewMedDose(e.target.value)}
-                          placeholder="Ex: 5g, 1 comprimido"
-                          className="w-full h-8 px-2 text-xs rounded bg-black/40 border border-white/10 text-white outline-none focus:border-violet-300"
-                        />
-                      </label>
-                      <label className="block">
-                        <span className="text-[10px] text-zinc-500 block mb-0.5">Horário</span>
-                        <input
-                          type="text"
-                          value={newMedTime}
-                          onChange={(e) => setNewMedTime(e.target.value)}
-                          placeholder="Ex: 08:00"
-                          className="w-full h-8 px-2 text-xs rounded bg-black/40 border border-white/10 text-white outline-none focus:border-violet-300 text-center"
-                        />
-                      </label>
-                    </div>
-                  </div>
-                  <div className="flex justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setShowAddMed(false)}
-                      className="px-3 h-8 text-xs font-bold rounded border border-white/10 text-zinc-400 hover:text-white cursor-pointer"
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleAddMed}
-                      disabled={!newMedName || !newMedDose}
-                      className="px-3 h-8 text-xs font-bold rounded bg-violet-300 text-black cursor-pointer disabled:opacity-50"
-                    >
-                      Adicionar
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
 
           {/* Bioimpedância */}
           {item.type === "bioimpedancia" && (
@@ -2640,9 +2472,7 @@ function AddSheet({
   const [meals, setMeals] = useState<Meal[]>([
     { name: "Café da manhã", items: [{ name: "Whey com banana", calories: 300, amount: "1 dose" }] }
   ]);
-  const [medsList, setMedsList] = useState<Omit<MedItem, "done">[]>([
-    { name: "Creatina", dose: "5g", time: "08:00" }
-  ]);
+
   const [examsList, setExamsList] = useState<Omit<BloodExamItem, "done">[]>([
     { name: "Hemograma" }
   ]);
@@ -2755,15 +2585,7 @@ function AddSheet({
     setMeals(updated);
   };
 
-  const addMedsItem = () => {
-    setMedsList([...medsList, { name: "", dose: "", time: "" }]);
-  };
 
-  const removeMedsItem = (idx: number) => {
-    const updated = [...medsList];
-    updated.splice(idx, 1);
-    setMedsList(updated);
-  };
 
   const addExamItem = () => {
     setExamsList([...examsList, { name: "" }]);
@@ -2798,8 +2620,7 @@ function AddSheet({
         details.meals = meals.filter(m => m.name.trim());
       } else if (type === "aerobico") {
         details.aerobic = { name: aerobicName, duration: aerobicDuration };
-      } else if (type === "medicamento") {
-        details.meds = medsList.filter(i => i.name.trim());
+
       } else if (type === "bioimpedancia") {
         details.bio = { weight: bioWeight, fatPct: bioFat, muscleMass: bioMuscle };
       } else if (type === "sangue") {
@@ -3182,65 +3003,7 @@ function AddSheet({
               </div>
             )}
 
-            {/* Medicamento / Suplemento */}
-            {type === "medicamento" && (
-              <div className="space-y-3">
-                <span className="text-xs text-zinc-400 block">Itens de Medicamentos / Suplementos</span>
-                <div className="space-y-2">
-                  {medsList.map((med, idx) => (
-                    <div key={idx} className="flex gap-1.5 items-center bg-black/25 p-2 rounded-lg border border-white/5">
-                      <input
-                        type="text"
-                        value={med.name}
-                        onChange={(e) => {
-                          const updated = [...medsList];
-                          updated[idx].name = e.target.value;
-                          setMedsList(updated);
-                        }}
-                        placeholder="Nome do suplemento/méd"
-                        className="flex-1 h-8 px-2 text-xs rounded bg-black/40 border border-white/10 text-white outline-none focus:border-acid"
-                      />
-                      <input
-                        type="text"
-                        value={med.dose}
-                        onChange={(e) => {
-                          const updated = [...medsList];
-                          updated[idx].dose = e.target.value;
-                          setMedsList(updated);
-                        }}
-                        placeholder="Dose (Ex: 5g, 1 caps)"
-                        className="w-24 h-8 px-2 text-xs rounded bg-black/40 border border-white/10 text-white outline-none focus:border-acid"
-                      />
-                      <input
-                        type="text"
-                        value={med.time || ""}
-                        onChange={(e) => {
-                          const updated = [...medsList];
-                          updated[idx].time = e.target.value;
-                          setMedsList(updated);
-                        }}
-                        placeholder="08:00"
-                        className="w-16 h-8 text-center text-xs rounded bg-black/40 border border-white/10 text-white outline-none focus:border-acid"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => removeMedsItem(idx)}
-                        className="h-8 w-8 rounded bg-red-500/10 border border-red-500/20 text-red-400 flex items-center justify-center shrink-0 hover:bg-red-500/20 cursor-pointer"
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={addMedsItem}
-                    className="w-full h-8 rounded border border-dashed border-acid/20 text-acid bg-acid/5 text-xs font-bold flex items-center justify-center gap-1 hover:bg-acid/10 cursor-pointer"
-                  >
-                    <Plus size={14} /> Adicionar Item
-                  </button>
-                </div>
-              </div>
-            )}
+
 
             {/* Bioimpedância */}
             {type === "bioimpedancia" && (

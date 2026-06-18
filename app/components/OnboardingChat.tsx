@@ -103,11 +103,6 @@ function mergePreviewData(prev: any, next: any) {
     merged.aerobic = { ...prev.aerobic, ...next.aerobic };
   }
 
-  // Meds
-  if (next.meds && Array.isArray(next.meds) && next.meds.length > 0) {
-    merged.meds = next.meds;
-  }
-
   return merged;
 }
 
@@ -480,28 +475,6 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
               done: false
             }
           }
-        });
-      }
-
-      // 4. Planos de Medicamentos (Cria planos individuais para suportar frequências independentes, ex: semanal)
-      if (previewData.meds && previewData.meds.length > 0) {
-        previewData.meds.forEach((med: any) => {
-          plansToInsert.push({
-            type: "medicamento",
-            title: `Medicamento: ${med.name}`,
-            frequency: med.frequency || { type: "daily" },
-            startDate: new Date().toISOString().split("T")[0],
-            details: {
-              meds: [
-                {
-                  name: med.name,
-                  dose: med.dose,
-                  time: med.time,
-                  done: false
-                }
-              ]
-            }
-          });
         });
       }
 
@@ -1024,54 +997,22 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
                   </div>
                 )}
 
-                {/* CARD 4: CARDIO & MEDICAMENTOS */}
-                {(previewData.aerobic?.name || (previewData.meds && previewData.meds.length > 0)) && (
-                  <div className="grid grid-cols-1 gap-4">
-                    {/* Cardio */}
-                    {previewData.aerobic?.name && (
-                      <div className="bg-white/[0.03] border border-white/5 p-5 rounded-2xl space-y-3">
-                        <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
-                          <Timer className="w-3.5 h-3.5 text-zinc-500" />
-                          Exercício Aeróbico
-                        </h3>
-                        <div className="bg-black/20 border border-white/5 p-3.5 rounded-xl flex items-center justify-between">
-                          <div>
-                            <div className="text-xs font-bold text-zinc-300">{previewData.aerobic.name}</div>
-                            <div className="text-[10px] text-zinc-500">Intensidade moderada / leve</div>
-                          </div>
-                          <span className="text-xs font-extrabold text-amber-500 bg-amber-950/20 border border-amber-900/30 px-3 py-1 rounded-lg">
-                            {previewData.aerobic.duration} min
-                          </span>
-                        </div>
+                {/* CARD 4: CARDIO */}
+                {previewData.aerobic?.name && (
+                  <div className="bg-white/[0.03] border border-white/5 p-5 rounded-2xl space-y-3">
+                    <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
+                      <Timer className="w-3.5 h-3.5 text-zinc-500" />
+                      Exercício Aeróbico
+                    </h3>
+                    <div className="bg-black/20 border border-white/5 p-3.5 rounded-xl flex items-center justify-between">
+                      <div>
+                        <div className="text-xs font-bold text-zinc-300">{previewData.aerobic.name}</div>
+                        <div className="text-[10px] text-zinc-500">Intensidade moderada / leve</div>
                       </div>
-                    )}
-
-                    {/* Medicamentos */}
-                    {previewData.meds && previewData.meds.length > 0 && (
-                      <div className="bg-white/[0.03] border border-white/5 p-5 rounded-2xl space-y-3">
-                        <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center gap-2">
-                          <Pill className="w-3.5 h-3.5 text-zinc-500" />
-                          Medicamentos e Suplementação Pontual
-                        </h3>
-                        <div className="space-y-2">
-                          {previewData.meds.map((med: any, idx: number) => (
-                            <div key={idx} className="bg-black/20 border border-white/5 p-3 rounded-xl flex justify-between items-center">
-                              <div>
-                                <div className="text-[11px] font-bold text-zinc-300">{med.name}</div>
-                                <div className="text-[10px] text-zinc-500">
-                                  {med.dose} {med.frequency ? `• ${formatFrequencyLabel(med.frequency)}` : ""}
-                                </div>
-                              </div>
-                              {med.time && (
-                                <span className="text-[10px] font-bold text-zinc-400 bg-black/25 border border-white/5 px-2 py-0.5 rounded">
-                                  🕒 {med.time}
-                                </span>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                      <span className="text-xs font-extrabold text-amber-500 bg-amber-950/20 border border-amber-900/30 px-3 py-1 rounded-lg">
+                        {previewData.aerobic.duration} min
+                      </span>
+                    </div>
                   </div>
                 )}
               </div>

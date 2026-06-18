@@ -338,8 +338,6 @@ function markAllItemsAsDone(details: PlanDetails, type: PlanType, routineLetter?
     } else if (res.dietItems) {
       res.dietItems = res.dietItems.map((e: DietItem) => ({ ...e, done: true }));
     }
-  } else if (type === "medicamento" && res.meds) {
-    res.meds = res.meds.map((e: MedItem) => ({ ...e, done: true }));
   } else if (type === "aerobico" && res.aerobic) {
     res.aerobic.done = true;
   } else if (type === "bioimpedancia" && res.bio) {
@@ -525,11 +523,6 @@ function markAllItemsAsUndone(details: PlanDetails, type: PlanType, routineLette
         return rest;
       });
     }
-  } else if (type === "medicamento" && res.meds) {
-    res.meds = res.meds.map((e: MedItem) => {
-      const { done, ...rest } = e;
-      return rest;
-    });
   } else if (type === "aerobico" && res.aerobic) {
     delete res.aerobic.done;
   } else if (type === "bioimpedancia" && res.bio) {
@@ -579,11 +572,6 @@ export async function updateActivityOccurrence(
       const allSkipped = list.length > 0 && list.every(e => e.done === false);
       status = hasDone ? "done" : (allSkipped ? "skipped" : "pending");
     }
-  } else if (type === "medicamento" && details.meds) {
-    const list = details.meds;
-    const hasDone = list.some(e => e.done === true);
-    const allSkipped = list.length > 0 && list.every(e => e.done === false);
-    status = hasDone ? "done" : (allSkipped ? "skipped" : "pending");
   } else if (type === "aerobico" && details.aerobic) {
     status = details.aerobic.done === true ? "done" : (details.aerobic.done === false ? "skipped" : "pending");
   } else if (type === "bioimpedancia" && details.bio) {
@@ -651,9 +639,6 @@ export async function updateActivityOccurrence(
         }
         if (updatedPlanDetails.dietItems) {
           updatedPlanDetails.dietItems = updatedPlanDetails.dietItems.map((d: DietItem) => ({ name: d.name, calories: d.calories, amount: d.amount }));
-        }
-        if (updatedPlanDetails.meds) {
-          updatedPlanDetails.meds = updatedPlanDetails.meds.map((m: MedItem) => ({ name: m.name, dose: m.dose, time: m.time }));
         }
         if (updatedPlanDetails.aerobic) {
           delete updatedPlanDetails.aerobic.done;
@@ -1035,7 +1020,6 @@ export async function getOnboardingAdjustmentDataAction(): Promise<UserProfile |
     diet: [],
     workouts: {},
     aerobic: {},
-    meds: [],
   };
 
   dbPlans.forEach((plan) => {
@@ -1045,13 +1029,6 @@ export async function getOnboardingAdjustmentDataAction(): Promise<UserProfile |
       previewData.workouts = plan.details.workouts;
     } else if (plan.type === "aerobico" && plan.details?.aerobic) {
       previewData.aerobic = plan.details.aerobic;
-    } else if (plan.type === "medicamento" && plan.details?.meds) {
-      // Reconstrói o medicamento incluindo a frequência dele no item
-      const medsList = plan.details.meds.map((m: any) => ({
-        ...m,
-        frequency: plan.frequency,
-      }));
-      previewData.meds = [...previewData.meds, ...medsList];
     }
   });
 
@@ -1059,7 +1036,7 @@ export async function getOnboardingAdjustmentDataAction(): Promise<UserProfile |
   const messages = [
     {
       role: "assistant" as const,
-      content: "Olá! Notei que você quer fazer alguns ajustes na sua rotina atual. O que você gostaria de mudar? Pode me dizer se quer alterar algum exercício, ajustar refeições da dieta ou mudar horários/recorrências de medicamentos.",
+      content: "Olá! Notei que você quer fazer alguns ajustes na sua rotina atual. O que você gostaria de mudar? Pode me dizer se quer alterar algum exercício ou ajustar refeições da dieta.",
     },
   ];
 
@@ -1108,7 +1085,6 @@ export async function getUserRoutineAction(): Promise<any> {
     diet: [],
     workouts: {},
     aerobic: {},
-    meds: [],
   };
 
   dbPlans.forEach((plan) => {
@@ -1118,12 +1094,6 @@ export async function getUserRoutineAction(): Promise<any> {
       previewData.workouts = plan.details.workouts;
     } else if (plan.type === "aerobico" && plan.details?.aerobic) {
       previewData.aerobic = plan.details.aerobic;
-    } else if (plan.type === "medicamento" && plan.details?.meds) {
-      const medsList = plan.details.meds.map((m: any) => ({
-        ...m,
-        frequency: plan.frequency,
-      }));
-      previewData.meds = [...previewData.meds, ...medsList];
     }
   });
 
