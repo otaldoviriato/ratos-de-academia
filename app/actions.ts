@@ -330,6 +330,39 @@ function formatFrequencyTag(plan: Plan): string {
   }
 }
 
+function normalizeText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+const mealOrderRules = [
+  ["cafe da manha", "desjejum"],
+  ["lanche da manha", "colacao"],
+  ["almoco"],
+  ["pre treino", "pre-treino"],
+  ["lanche da tarde", "cafe da tarde"],
+  ["pos treino", "pos-treino"],
+  ["jantar"],
+  ["ceia"]
+];
+
+function getMealOrderIndex(name: string) {
+  const normalized = normalizeText(name || "");
+  const index = mealOrderRules.findIndex((aliases) =>
+    aliases.some((alias) => normalized.includes(alias))
+  );
+  return index === -1 ? mealOrderRules.length : index;
+}
+
+function sortMeals<T extends { name?: string }>(meals: T[] = []) {
+  return [...meals].sort((a, b) => {
+    const orderDiff = getMealOrderIndex(a?.name || "") - getMealOrderIndex(b?.name || "");
+    return orderDiff || String(a?.name || "").localeCompare(String(b?.name || ""), "pt-BR");
+  });
+}
+
 // Salva ou edita um plano
 export async function savePlanAction(planData: Omit<Plan, "userId">): Promise<void> {
   const { userId } = await auth();
@@ -751,8 +784,9 @@ export type UserProfile = {
   isOnboarded: boolean;
   gender?: "masculino" | "feminino" | "outro";
   age?: number;
+  trainingTime?: string;
   experience?: "iniciante" | "intermediario" | "avancado";
-  goal?: "hipertrofia" | "emagrecimento" | "saude";
+  goal?: "bulking" | "cutting" | "manutencao" | "hipertrofia" | "emagrecimento" | "saude";
   trainingDaysPerWeek?: number;
   biometrics?: {
     height?: number; // em cm
@@ -888,6 +922,7 @@ export async function completeOnboardingAction(
         isOnboarded: true,
         gender: profileData.gender,
         age: Number(profileData.age),
+        trainingTime: profileData.trainingTime,
         experience: profileData.experience,
         goal: profileData.goal,
         trainingDaysPerWeek: profileData.trainingDaysPerWeek ? Number(profileData.trainingDaysPerWeek) : undefined,
@@ -917,6 +952,9 @@ export async function completeOnboardingAction(
   if (plans && plans.length > 0) {
     const plansToInsert = plans.map((plan) => ({
       ...plan,
+      details: plan.type === "dieta" && plan.details?.meals
+        ? { ...plan.details, meals: sortMeals(plan.details.meals) }
+        : plan.details,
       userId,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -950,6 +988,7 @@ export async function getOnboardingAdjustmentDataAction(): Promise<UserProfile |
     profile: {
       gender: profile.gender,
       age: profile.age,
+      trainingTime: profile.trainingTime,
       experience: profile.experience,
       goal: profile.goal,
       trainingDaysPerWeek: profile.trainingDaysPerWeek,
@@ -963,7 +1002,7 @@ export async function getOnboardingAdjustmentDataAction(): Promise<UserProfile |
 
   dbPlans.forEach((plan) => {
     if (plan.type === "dieta") {
-      previewData.diet = plan.details.meals || (plan.details.dietItems ? [{ name: "Refeições", items: plan.details.dietItems }] : []);
+      previewData.diet = sortMeals(plan.details.meals || (plan.details.dietItems ? [{ name: "Refeições", items: plan.details.dietItems }] : []));
     } else if (plan.type === "musculacao" && plan.details?.workouts) {
       previewData.workouts = plan.details.workouts;
     } else if (plan.type === "aerobico" && plan.details?.aerobic) {
@@ -1022,6 +1061,7 @@ export async function getUserRoutineAction(): Promise<any> {
     profile: {
       gender: profile.gender,
       age: profile.age,
+      trainingTime: profile.trainingTime,
       experience: profile.experience,
       goal: profile.goal,
       trainingDaysPerWeek: profile.trainingDaysPerWeek,
@@ -1035,7 +1075,7 @@ export async function getUserRoutineAction(): Promise<any> {
 
   dbPlans.forEach((plan) => {
     if (plan.type === "dieta") {
-      previewData.diet = plan.details.meals || (plan.details.dietItems ? [{ name: "Refeições", items: plan.details.dietItems }] : []);
+      previewData.diet = sortMeals(plan.details.meals || (plan.details.dietItems ? [{ name: "Refeições", items: plan.details.dietItems }] : []));
     } else if (plan.type === "musculacao" && plan.details?.workouts) {
       previewData.workouts = plan.details.workouts;
     } else if (plan.type === "aerobico" && plan.details?.aerobic) {

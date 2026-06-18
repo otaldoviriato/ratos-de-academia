@@ -90,6 +90,18 @@ function formatDateLabel(dateStr: string): string {
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
+function formatGoalLabel(goal?: string) {
+  const labels: Record<string, string> = {
+    bulking: "Bulking (ganho de massa magra)",
+    cutting: "Cutting (emagrecimento)",
+    manutencao: "Manutenção de uma vida saudável",
+    hipertrofia: "Hipertrofia",
+    emagrecimento: "Emagrecimento",
+    saude: "Manutenção/Saúde"
+  };
+  return goal ? labels[goal] || goal : "";
+}
+
 const addOptions: Array<{
   type: PlanType;
   title: string;
@@ -634,10 +646,16 @@ export default function Home() {
                                 <div className="font-semibold text-zinc-200">{userRoutine.profile.age} anos</div>
                               </div>
                             )}
+                            {userRoutine.profile?.trainingTime && (
+                              <div className="bg-black/20 border border-white/5 p-2 rounded-lg col-span-2">
+                                <div className="text-zinc-500 mb-0.5">Tempo de Treino</div>
+                                <div className="font-semibold text-zinc-200">{userRoutine.profile.trainingTime}</div>
+                              </div>
+                            )}
                             {userRoutine.profile?.goal && (
                               <div className="bg-black/20 border border-white/5 p-2 rounded-lg col-span-2">
                                 <div className="text-zinc-500 mb-0.5">Objetivo Principal</div>
-                                <div className="font-semibold text-acid capitalize">{userRoutine.profile.goal}</div>
+                                <div className="font-semibold text-acid">{formatGoalLabel(userRoutine.profile.goal)}</div>
                               </div>
                             )}
                             {userRoutine.biometrics?.weight && (

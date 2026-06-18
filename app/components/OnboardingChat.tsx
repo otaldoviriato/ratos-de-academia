@@ -20,9 +20,61 @@ import {
 import { UserButton } from "@clerk/nextjs";
 import { completeOnboardingAction, saveOnboardingProgressAction, cancelOnboardingAdjustmentAction, resetOnboardingAction, Plan, UserProfile } from "../actions";
 
+function normalizeText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+const mealOrderRules = [
+  ["cafe da manha", "desjejum"],
+  ["lanche da manha", "colacao"],
+  ["almoco"],
+  ["pre treino", "pre-treino"],
+  ["lanche da tarde", "cafe da tarde"],
+  ["pos treino", "pos-treino"],
+  ["jantar"],
+  ["ceia"]
+];
+
+function getMealOrderIndex(name: string) {
+  const normalized = normalizeText(name || "");
+  const index = mealOrderRules.findIndex((aliases) =>
+    aliases.some((alias) => normalized.includes(alias))
+  );
+  return index === -1 ? mealOrderRules.length : index;
+}
+
+function sortDietMeals(diet: any[] = []) {
+  return [...diet].sort((a, b) => {
+    const orderDiff = getMealOrderIndex(a?.name) - getMealOrderIndex(b?.name);
+    return orderDiff || String(a?.name || "").localeCompare(String(b?.name || ""), "pt-BR");
+  });
+}
+
+function normalizePreviewData(data: any) {
+  if (!data) return data;
+  return Array.isArray(data.diet) ? { ...data, diet: sortDietMeals(data.diet) } : data;
+}
+
+function formatGoalLabel(goal?: string) {
+  const labels: Record<string, string> = {
+    bulking: "Bulking (ganho de massa magra)",
+    cutting: "Cutting (emagrecimento)",
+    manutencao: "Manutenção de uma vida saudável",
+    hipertrofia: "Hipertrofia",
+    emagrecimento: "Emagrecimento",
+    saude: "Manutenção/Saúde"
+  };
+  return goal ? labels[goal] || goal : "";
+}
+
 function mergePreviewData(prev: any, next: any) {
   if (!next) return prev;
-  if (!prev) return next;
+  if (!prev) {
+    return Array.isArray(next.diet) ? { ...next, diet: sortDietMeals(next.diet) } : next;
+  }
 
   const merged = { ...prev };
 
@@ -38,7 +90,7 @@ function mergePreviewData(prev: any, next: any) {
 
   // Diet
   if (next.diet && Array.isArray(next.diet) && next.diet.length > 0) {
-    merged.diet = next.diet;
+    merged.diet = sortDietMeals(next.diet);
   }
 
   // Workouts
@@ -134,7 +186,7 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [previewData, setPreviewData] = useState<any>(() => {
-    return profile?.onboardingState?.previewData || {};
+    return normalizePreviewData(profile?.onboardingState?.previewData || {});
   });
   const [finished, setFinished] = useState(() => {
     return profile?.onboardingState?.finished || false;
@@ -185,7 +237,7 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
       if (profile.onboardingState?.messages) {
         setMessages(profile.onboardingState.messages);
       }
-      setPreviewData(profile.onboardingState?.previewData || {});
+      setPreviewData(normalizePreviewData(profile.onboardingState?.previewData || {}));
       setFinished(profile.onboardingState?.finished || false);
     }
   }, [profile]);
@@ -367,8 +419,9 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
       const profileData: Omit<UserProfile, "userId" | "isOnboarded"> = {
         gender: previewData.profile?.gender || "outro",
         age: previewData.profile?.age || 20,
+        trainingTime: previewData.profile?.trainingTime,
         experience: previewData.profile?.experience,
-        goal: previewData.profile?.goal || "saude",
+        goal: previewData.profile?.goal || "manutencao",
         trainingDaysPerWeek: previewData.profile?.trainingDaysPerWeek,
         biometrics: {
           height: previewData.biometrics?.height,
@@ -389,7 +442,7 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
           frequency: { type: "daily" },
           startDate: new Date().toISOString().split("T")[0],
           details: {
-            meals: previewData.diet
+            meals: sortDietMeals(previewData.diet)
           }
         });
       }
@@ -745,7 +798,7 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
                 placeholder={
                   isUploading 
                     ? "Analisando exame..." 
-                    : "Digite sua mensagem... (ex: 'Tenho 28 anos, homem, intermediário')"
+                    : "Digite sua mensagem... (ex: 'Treino há 2 anos')"
                 }
                 disabled={isTyping || isUploading}
                 className="flex-1 bg-transparent text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none px-2"
@@ -833,6 +886,12 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
                           <div className="font-semibold text-zinc-200 capitalize">{previewData.profile.experience}</div>
                         </div>
                       )}
+                      {previewData.profile?.trainingTime && (
+                        <div className="bg-black/20 border border-white/5 p-3 rounded-xl">
+                          <div className="text-zinc-500 mb-0.5">Tempo de Treino</div>
+                          <div className="font-semibold text-zinc-200">{previewData.profile.trainingTime}</div>
+                        </div>
+                      )}
                       {previewData.profile?.trainingDaysPerWeek && (
                         <div className="bg-black/20 border border-white/5 p-3 rounded-xl">
                           <div className="text-zinc-500 mb-0.5">Treino/Semana</div>
@@ -842,7 +901,7 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
                       {previewData.profile?.goal && (
                         <div className="bg-black/20 border border-white/5 p-3 rounded-xl col-span-2">
                           <div className="text-zinc-500 mb-0.5">Objetivo Principal</div>
-                          <div className="font-semibold text-acid capitalize">{previewData.profile.goal}</div>
+                          <div className="font-semibold text-acid">{formatGoalLabel(previewData.profile.goal)}</div>
                         </div>
                       )}
                       {previewData.biometrics?.weight && (

@@ -43,6 +43,33 @@ function lastUserText(messages: ChatMessage[]) {
   return "";
 }
 
+const mealOrderRules = [
+  ["cafe da manha", "desjejum"],
+  ["lanche da manha", "colacao"],
+  ["almoco"],
+  ["pre treino", "pre-treino"],
+  ["lanche da tarde", "cafe da tarde"],
+  ["pos treino", "pos-treino"],
+  ["jantar"],
+  ["ceia"]
+];
+
+function getMealOrderIndex(name: string) {
+  const normalized = normalizeText(name || "");
+  const index = mealOrderRules.findIndex((aliases) =>
+    aliases.some((alias) => normalized.includes(alias))
+  );
+  return index === -1 ? mealOrderRules.length : index;
+}
+
+function sortDietMeals(diet: any) {
+  if (!Array.isArray(diet)) return diet;
+  return [...diet].sort((a, b) => {
+    const orderDiff = getMealOrderIndex(a?.name) - getMealOrderIndex(b?.name);
+    return orderDiff || String(a?.name || "").localeCompare(String(b?.name || ""), "pt-BR");
+  });
+}
+
 function mergePreviewData(prev: any, next: any) {
   return {
     ...(prev || {}),
@@ -64,11 +91,38 @@ function inferExperience(previewData: any, messages: ChatMessage[]) {
   if (explicit.includes("intermedi")) return "intermediario";
   if (explicit.includes("inic")) return "iniciante";
 
+  const trainingTime = normalizeText(previewData?.profile?.trainingTime || "");
+  const parsedFromPreview = inferExperienceFromTrainingTime(trainingTime);
+  if (parsedFromPreview) return parsedFromPreview;
+
   const text = normalizeText(conversationText(messages));
+  const parsedFromConversation = inferExperienceFromTrainingTime(text);
+  if (parsedFromConversation) return parsedFromConversation;
+
   if (text.includes("avanc")) return "avancado";
   if (text.includes("intermedi")) return "intermediario";
   if (text.includes("inic")) return "iniciante";
   return "intermediario";
+}
+
+function inferExperienceFromTrainingTime(text: string) {
+  const yearsMatch = text.match(/(\d+(?:[,.]\d+)?)\s*(ano|anos)/);
+  if (yearsMatch) {
+    const years = Number(yearsMatch[1].replace(",", "."));
+    if (years >= 3) return "avancado";
+    if (years >= 1) return "intermediario";
+    return "iniciante";
+  }
+
+  const monthsMatch = text.match(/(\d+)\s*(mes|meses)/);
+  if (monthsMatch) {
+    const months = Number(monthsMatch[1]);
+    if (months >= 36) return "avancado";
+    if (months >= 12) return "intermediario";
+    return "iniciante";
+  }
+
+  return null;
 }
 
 function inferTrainingDays(previewData: any, messages: ChatMessage[]) {
@@ -411,6 +465,20 @@ function normalizeWorkoutPlan(data: OnboardingResponse, currentPreviewData: any,
   };
 }
 
+function normalizeDietOrder(data: OnboardingResponse) {
+  if (!Array.isArray(data.previewData?.diet)) {
+    return data;
+  }
+
+  return {
+    ...data,
+    previewData: {
+      ...(data.previewData || {}),
+      diet: sortDietMeals(data.previewData.diet)
+    }
+  };
+}
+
 function isWorkoutPlanRequest(messages: ChatMessage[], currentPreviewData: any) {
   const lastMessage = normalizeText(lastUserText(messages));
   const hasExistingWorkout = currentPreviewData?.workouts && Object.keys(currentPreviewData.workouts).length > 0;
@@ -487,20 +555,24 @@ SEQUÊNCIA DE ETAPAS (UMA PERGUNTA POR VEZ):
 - ETAPA 1 (DADOS BÁSICOS):
   1. Pergunte apenas o gênero do usuário.
   2. Após ele responder, pergunte a idade dele.
-  3. Após ele responder, pergunte sobre a experiência dele com musculação (iniciante, intermediário, avançado) e salve a resposta em "previewData.profile.experience".
+  3. Após ele responder, pergunte há quanto tempo ele treina musculação. Não pergunte se ele é iniciante, intermediário ou avançado. Salve a resposta textual em "previewData.profile.trainingTime" e derive "previewData.profile.experience" assim: menos de 12 meses = "iniciante"; de 12 a 35 meses = "intermediario"; 36 meses ou mais = "avancado".
 - ETAPA 2 (COMPOSIÇÃO CORPORAL):
   1. Pergunte se ele possui exame de bioimpedância recente ou se prefere fornecer apenas peso e altura (e avise que ele pode anexar o exame em formato de foto).
   2. Se ele disser peso/altura: pergunte primeiro a altura (em cm). Depois, pergunte o peso (em kg).
   3. Se ele enviar a bioimpedância (injetado via sistema): confirme apenas os dados extraídos em uma frase simples e pergunte se estão corretos.
-- ETAPA 3 (CÁLCULO E OBJETIVO):
+- ETAPA 3 (CÁLCULO E MEDICAMENTOS):
   1. Calcule e apresente a TMB (Taxa Metabólica Basal) de forma resumida baseada nos dados.
-  2. Pergunte qual o objetivo principal dele (Hipertrofia, Emagrecimento, ou Manutenção/Saúde).
-- ETAPA 4 (DIETA & SUPLEMENTAÇÃO):
+  2. Pergunte se ele faz uso de medicamentos, hormônios, anabolizantes ou suplementações que deseja monitorar, coletando nome, dosagem, horário e frequência exata (ex: todo dia, uma vez por semana, dias alternados). Esta etapa vem antes de dieta e treino porque esses dados podem mudar completamente a prescrição.
+- ETAPA 4 (OBJETIVO):
+  1. Depois de medicamentos/suplementações, pergunte qual é o objetivo principal dele: bulking (ganho de massa magra), cutting (emagrecimento) ou manutenção de uma vida saudável.
+  2. Salve o objetivo em "previewData.profile.goal" usando apenas "bulking", "cutting" ou "manutencao".
+- ETAPA 5 (DIETA):
   1. Pergunte se ele já segue uma dieta ou quer uma sugestão.
   2. Se quer sugestão, apresente a divisão de refeições proposta (com Whey, Creatina inclusos). Pergunte se ele aprova essa dieta.
   3. IMPORTANTE: Ao criar a dieta no "previewData" (no campo "diet"), divida-a por REFEIÇÕES (ex: Café da Manhã, Almoço, Café da Tarde, Jantar, Ceia, etc. - você pode criar, renomear ou remover refeições conforme as necessidades do usuário). Dentro de cada refeição (na propriedade "items"), insira cada alimento individualmente (ex: se o almoço tem Arroz e Frango, insira "Arroz Branco" e "Frango Grelhado" como dois registros separados no array de alimentos "items" da refeição "Almoço", permitindo que o usuário dê check em cada um individualmente). Nunca agrupe refeições inteiras em itens genéricos como "Marmita" ou "Lanche".
-  4. Quando criar ou refazer uma dieta, coloque a versão completa em "previewData.diet" e também escreva no "message" as refeições e principais alimentos/quantidades. Não diga apenas que atualizou o painel.
-- ETAPA 5 (TREINO):
+  4. Organize as refeições em ordem cronológica natural do dia: Café da manhã, Lanche da manhã/Colação, Almoço, Pré-treino se existir, Lanche da tarde/Café da tarde, Pós-treino se existir, Jantar, Ceia.
+  5. Quando criar ou refazer uma dieta, coloque a versão completa em "previewData.diet" e também escreva no "message" as refeições e principais alimentos/quantidades. Não diga apenas que atualizou o painel.
+- ETAPA 6 (TREINO):
   1. Pergunte quantos dias ele pretende treinar por semana e salve a resposta em "previewData.profile.trainingDaysPerWeek".
   2. Proponha a divisão de treinos ideal para o contexto do usuário, sem se prender a um modelo fixo. A divisão pode ser Full Body, AB, ABC, ABCD, ABCDE ou outra estrutura coerente, conforme frequência semanal, nível, objetivo, dados corporais, recuperação e informações já coletadas.
   3. Ao criar o "workouts", aja como um profissional de educação física: escolha exercícios, volume, séries, repetições e distribuição muscular que façam sentido para aquele perfil. Um usuário adulto saudável fazendo musculação normal não deve receber um treino genérico ou subprescrito; cada dia precisa parecer uma sessão real e defensável de academia para o objetivo informado.
@@ -509,16 +581,16 @@ SEQUÊNCIA DE ETAPAS (UMA PERGUNTA POR VEZ):
   6. Monte cada dia com coerência de grupos musculares, priorizando movimentos compostos quando apropriado e complementando com isoladores conforme objetivo, nível e recuperação. Evite combinações pobres como um treino normal de peito/tríceps com apenas "Supino Reto" e "Tríceps na Polia" quando não houver justificativa clínica, logística ou de tempo.
   7. IMPORTANTE: Ao preencher o campo "load" dos exercícios de musculação em "workouts", use sempre valores em kg (ex: "20kg", "35kg", "50kg"). Nunca use percentual de 1RM (como "70% 1RM") nem expressões subjetivas (como "moderada", "pesada").
   8. Quando criar ou refazer um treino, coloque a versão completa em "previewData.workouts" e também escreva no "message" a divisão e os exercícios por treino. Exemplo de formato da mensagem: "Refiz seu treino e atualizei a Rotina.\nTreino A - Peito e tríceps: Supino reto, Supino inclinado, Crucifixo, Paralelas, Tríceps corda.\nTreino B - Costas e bíceps: ...\nConfere a Rotina e me diz se quer ajustar algo."
-- ETAPA 6 (CARDIO):
+- ETAPA 7 (CARDIO):
   1. Pergunte se ele gostaria de fazer exercícios aeróbicos (tipo, duração, intensidade).
-- ETAPA 7 (MEDICAMENTOS):
-  1. Pergunte se ele faz uso de medicamentos ou suplementações que deseja monitorar, coletando o nome, dosagem, horário e a frequência exata (ex: se toma todo dia, uma vez por semana, dias alternados).
 - ETAPA 8 (CONFIRMAÇÃO FINAL):
   1. Pergunte de forma muito concisa se ele está pronto para salvar a rotina no aplicativo. Somente depois de ele aceitar, defina "finished": true.
 
 REGRAS DO "previewData":
 - Só inclua os dados no "previewData" à medida que forem combinados e confirmados. Não adivinhe ou crie dados futuros.
-- Todo dado coletado deve ser preservado no "previewData": gênero, idade, experiência, objetivo, dias de treino por semana, biometria completa, TMB, dieta, treinos, aeróbico e medicamentos. Use todos esses dados como contexto ao criar treino ou dieta.
+- Todo dado coletado deve ser preservado no "previewData": gênero, idade, tempo de treino, experiência derivada, objetivo, dias de treino por semana, biometria completa, TMB, dieta, treinos, aeróbico e medicamentos. Use todos esses dados como contexto ao criar treino ou dieta.
+- Medicamentos, hormônios, anabolizantes e suplementações coletados antes do objetivo devem ser considerados obrigatoriamente ao montar dieta e treino. Se houver uso de algo como durateston, testosterona, oxandrolona ou similares, não ignore esse dado na prescrição.
+- Ao devolver "diet", mantenha as refeições em ordem cronológica natural do dia.
 - No campo "load" de "workouts", defina sempre a carga em kg (ex: "15kg", "25kg", "40kg"). Nunca use termos subjetivos ou percentuais de 1RM.
 - No campo "workouts", cada chave de treino (ex: "A", "B", "C") deve conter uma sessão completa e coerente para aquele dia, com exercícios, séries, repetições e carga em kg para todos.
 - Não deixe o campo "workouts" com sessões rasas quando os dados indicarem treino normal de academia. Se não houver restrição explícita, uma divisão de 4, 5 ou 6 dias com todos os dias contendo apenas 2 ou 3 exercícios é sinal de prescrição fraca e deve ser melhorada antes de responder.
@@ -528,8 +600,9 @@ REGRAS DO "previewData":
     "profile": {
       "gender": "masculino" | "feminino" | "outro",
       "age": number,
+      "trainingTime": string,
       "experience": "iniciante" | "intermediario" | "avancado",
-      "goal": "hipertrofia" | "emagrecimento" | "saude",
+      "goal": "bulking" | "cutting" | "manutencao",
       "trainingDaysPerWeek": number
     },
     "biometrics": {
@@ -566,7 +639,7 @@ Retorne apenas o JSON puro, sem blocos de código markdown como \`\`\`json.`;
     let finalSystemPrompt = systemPrompt;
     if (currentPreviewData && Object.keys(currentPreviewData).length > 0) {
       finalSystemPrompt += `\n\nATENÇÃO: Estes são TODOS os dados estruturados coletados até agora e eles são a fonte de verdade para criar treino/dieta:\n${JSON.stringify(currentPreviewData)}\n
-Você DEVE usar esses dados como contexto clínico/prático: perfil, experiência, dias de treino, objetivo, biometria, TMB, gordura corporal, massa muscular, dieta, treinos, aeróbico e medicamentos. Também DEVE incluir integralmente esses dados nas chaves correspondentes do seu objeto "previewData" de retorno, realizando apenas as edições, inclusões ou exclusões solicitadas explicitamente pelo usuário na conversa. Nunca devolva chaves de treinos ("workouts"), dieta ("diet"), cardio ("aerobic"), perfil ("profile") ou biometria ("biometrics") vazias ou zeradas se esses dados já existiam no preview anterior e o usuário não pediu para excluí-los.`;
+Você DEVE usar esses dados como contexto clínico/prático: perfil, tempo de treino, experiência derivada, dias de treino, objetivo, biometria, TMB, gordura corporal, massa muscular, dieta, treinos, aeróbico e medicamentos. Também DEVE incluir integralmente esses dados nas chaves correspondentes do seu objeto "previewData" de retorno, realizando apenas as edições, inclusões ou exclusões solicitadas explicitamente pelo usuário na conversa. Nunca devolva chaves de treinos ("workouts"), dieta ("diet"), cardio ("aerobic"), perfil ("profile") ou biometria ("biometrics") vazias ou zeradas se esses dados já existiam no preview anterior e o usuário não pediu para excluí-los.`;
     }
 
     const response = await openai.chat.completions.create({
@@ -581,7 +654,7 @@ Você DEVE usar esses dados como contexto clínico/prático: perfil, experiênci
 
     const contentText = response.choices[0].message?.content || "{}";
     const data = normalizeWorkoutPlan(
-      JSON.parse(contentText) as OnboardingResponse,
+      normalizeDietOrder(JSON.parse(contentText) as OnboardingResponse),
       currentPreviewData,
       chatMessages
     );
