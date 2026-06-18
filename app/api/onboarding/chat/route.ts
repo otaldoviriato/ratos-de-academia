@@ -13,6 +13,404 @@ type OnboardingResponse = {
   finished?: boolean;
 };
 
+type WorkoutExercise = {
+  name: string;
+  series: number;
+  reps: number;
+  load: string;
+};
+
+type WorkoutTemplate = {
+  label: string;
+  exercises: WorkoutExercise[];
+};
+
+function normalizeText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function conversationText(messages: ChatMessage[]) {
+  return messages.map((message) => message.content || "").join("\n");
+}
+
+function lastUserText(messages: ChatMessage[]) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]?.role === "user") return messages[i].content || "";
+  }
+  return "";
+}
+
+function mergePreviewData(prev: any, next: any) {
+  return {
+    ...(prev || {}),
+    ...(next || {}),
+    profile: {
+      ...(prev?.profile || {}),
+      ...(next?.profile || {})
+    },
+    biometrics: {
+      ...(prev?.biometrics || {}),
+      ...(next?.biometrics || {})
+    }
+  };
+}
+
+function inferExperience(previewData: any, messages: ChatMessage[]) {
+  const explicit = normalizeText(previewData?.profile?.experience || "");
+  if (explicit.includes("avanc")) return "avancado";
+  if (explicit.includes("intermedi")) return "intermediario";
+  if (explicit.includes("inic")) return "iniciante";
+
+  const text = normalizeText(conversationText(messages));
+  if (text.includes("avanc")) return "avancado";
+  if (text.includes("intermedi")) return "intermediario";
+  if (text.includes("inic")) return "iniciante";
+  return "intermediario";
+}
+
+function inferTrainingDays(previewData: any, messages: ChatMessage[]) {
+  const fromPreview = Number(previewData?.profile?.trainingDaysPerWeek);
+  if (Number.isFinite(fromPreview) && fromPreview >= 2 && fromPreview <= 6) {
+    return Math.round(fromPreview);
+  }
+
+  const text = normalizeText(`${lastUserText(messages)}\n${conversationText(messages)}`);
+  if (text.includes("abcdef")) return 6;
+  if (text.includes("abcde")) return 5;
+  if (text.includes("abcd")) return 4;
+  if (text.includes("abc")) return 3;
+  if (text.includes("ab")) return 2;
+
+  const dayMatch = text.match(/([2-6])\s*(dias|x|vezes)/);
+  if (dayMatch) return Number(dayMatch[1]);
+
+  return 5;
+}
+
+function hasExplicitMinimalConstraint(messages: ChatMessage[]) {
+  const text = normalizeText(conversationText(messages));
+  return [
+    "pouco tempo",
+    "treino curto",
+    "30 minutos",
+    "20 minutos",
+    "lesao",
+    "dor",
+    "deload",
+    "retorno gradual",
+    "sem equipamento",
+    "equipamento limitado",
+    "em casa"
+  ].some((pattern) => text.includes(normalizeText(pattern)));
+}
+
+function shouldReplaceShallowWorkout(workouts: any, previewData: any, messages: ChatMessage[]) {
+  if (!workouts || typeof workouts !== "object" || hasExplicitMinimalConstraint(messages)) {
+    return false;
+  }
+
+  const days = Object.values(workouts).filter(Array.isArray) as any[][];
+  if (days.length === 0) return false;
+
+  const trainingDays = inferTrainingDays(previewData, messages);
+  const experience = inferExperience(previewData, messages);
+  const allDaysAreShallow = days.every((day) => day.length <= 3);
+  const averageExercises = days.reduce((sum, day) => sum + day.length, 0) / days.length;
+  const hasCardioAsWorkoutDay = days.some((day) =>
+    day.some((exercise) => normalizeText(exercise?.name || "").includes("cardio"))
+  );
+
+  return (
+    hasCardioAsWorkoutDay ||
+    (trainingDays >= 4 && allDaysAreShallow) ||
+    (experience === "avancado" && trainingDays >= 4 && averageExercises < 5)
+  );
+}
+
+function ex(name: string, series: number, reps: number, load: string): WorkoutExercise {
+  return { name, series, reps, load };
+}
+
+function buildWorkoutTemplates(days: number, experience: string): WorkoutTemplate[] {
+  const advanced = experience === "avancado";
+  const mainSets = advanced ? 4 : 3;
+  const accessorySets = advanced ? 4 : 3;
+
+  if (days <= 3) {
+    return [
+      {
+        label: "Treino A - Full body com ênfase em superiores",
+        exercises: [
+          ex("Supino reto", mainSets, 8, "60kg"),
+          ex("Remada curvada", mainSets, 8, "60kg"),
+          ex("Agachamento livre", mainSets, 8, "80kg"),
+          ex("Desenvolvimento militar", accessorySets, 10, "30kg"),
+          ex("Rosca direta", 3, 12, "20kg"),
+          ex("Tríceps na polia", 3, 12, "25kg")
+        ]
+      },
+      {
+        label: "Treino B - Full body com ênfase em pernas",
+        exercises: [
+          ex("Levantamento terra romeno", mainSets, 8, "70kg"),
+          ex("Leg press", mainSets, 10, "160kg"),
+          ex("Puxada alta", mainSets, 10, "55kg"),
+          ex("Supino inclinado com halteres", accessorySets, 10, "30kg"),
+          ex("Mesa flexora", 3, 12, "40kg"),
+          ex("Elevação lateral", 3, 12, "12kg")
+        ]
+      },
+      {
+        label: "Treino C - Full body com ênfase em costas e posteriores",
+        exercises: [
+          ex("Barra fixa", mainSets, 8, "Peso corporal"),
+          ex("Agachamento frontal", mainSets, 8, "60kg"),
+          ex("Remada baixa", accessorySets, 10, "55kg"),
+          ex("Crucifixo inclinado", 3, 12, "16kg"),
+          ex("Panturrilha em pé", 4, 12, "60kg"),
+          ex("Prancha abdominal", 3, 45, "Peso corporal")
+        ]
+      }
+    ];
+  }
+
+  if (days === 4) {
+    return [
+      {
+        label: "Treino A - Superiores força",
+        exercises: [
+          ex("Supino reto", mainSets, 6, "70kg"),
+          ex("Remada curvada", mainSets, 8, "65kg"),
+          ex("Desenvolvimento militar", mainSets, 8, "35kg"),
+          ex("Puxada alta", accessorySets, 10, "60kg"),
+          ex("Supino inclinado com halteres", 3, 10, "32kg"),
+          ex("Rosca direta", 3, 10, "24kg"),
+          ex("Tríceps testa", 3, 10, "25kg")
+        ]
+      },
+      {
+        label: "Treino B - Inferiores força",
+        exercises: [
+          ex("Agachamento livre", mainSets, 6, "90kg"),
+          ex("Levantamento terra romeno", mainSets, 8, "80kg"),
+          ex("Leg press", accessorySets, 10, "180kg"),
+          ex("Mesa flexora", 3, 10, "45kg"),
+          ex("Cadeira extensora", 3, 12, "50kg"),
+          ex("Panturrilha em pé", 4, 12, "70kg")
+        ]
+      },
+      {
+        label: "Treino C - Superiores hipertrofia",
+        exercises: [
+          ex("Supino inclinado", accessorySets, 10, "55kg"),
+          ex("Remada baixa", accessorySets, 10, "60kg"),
+          ex("Crucifixo no cabo", 3, 12, "15kg"),
+          ex("Face pull", 3, 15, "25kg"),
+          ex("Elevação lateral", 4, 12, "12kg"),
+          ex("Rosca alternada", 3, 12, "16kg"),
+          ex("Tríceps corda", 3, 12, "25kg")
+        ]
+      },
+      {
+        label: "Treino D - Inferiores hipertrofia",
+        exercises: [
+          ex("Hack squat", accessorySets, 10, "90kg"),
+          ex("Afundo com halteres", 3, 10, "24kg"),
+          ex("Stiff", accessorySets, 10, "70kg"),
+          ex("Cadeira flexora", 3, 12, "40kg"),
+          ex("Cadeira extensora", 3, 12, "45kg"),
+          ex("Panturrilha sentada", 4, 15, "45kg"),
+          ex("Abdominal na polia", 3, 12, "30kg")
+        ]
+      }
+    ];
+  }
+
+  if (days >= 6) {
+    return [
+      {
+        label: "Treino A - Push força",
+        exercises: [
+          ex("Supino reto", mainSets, 6, "70kg"),
+          ex("Desenvolvimento militar", mainSets, 8, "35kg"),
+          ex("Supino inclinado com halteres", accessorySets, 8, "34kg"),
+          ex("Paralelas", 3, 10, "Peso corporal"),
+          ex("Elevação lateral", 4, 12, "12kg"),
+          ex("Tríceps testa", 3, 10, "25kg")
+        ]
+      },
+      {
+        label: "Treino B - Pull força",
+        exercises: [
+          ex("Barra fixa", mainSets, 8, "Peso corporal"),
+          ex("Remada curvada", mainSets, 8, "65kg"),
+          ex("Puxada neutra", accessorySets, 10, "60kg"),
+          ex("Remada unilateral", 3, 10, "34kg"),
+          ex("Rosca direta", 3, 10, "24kg"),
+          ex("Rosca martelo", 3, 12, "18kg")
+        ]
+      },
+      {
+        label: "Treino C - Pernas força",
+        exercises: [
+          ex("Agachamento livre", mainSets, 6, "90kg"),
+          ex("Levantamento terra romeno", mainSets, 8, "80kg"),
+          ex("Leg press", accessorySets, 10, "180kg"),
+          ex("Mesa flexora", 3, 10, "45kg"),
+          ex("Panturrilha em pé", 4, 12, "70kg")
+        ]
+      },
+      {
+        label: "Treino D - Push hipertrofia",
+        exercises: [
+          ex("Supino inclinado", accessorySets, 10, "55kg"),
+          ex("Crucifixo no cabo", 3, 12, "15kg"),
+          ex("Desenvolvimento com halteres", 3, 10, "26kg"),
+          ex("Elevação lateral", 4, 15, "10kg"),
+          ex("Tríceps corda", 3, 12, "25kg"),
+          ex("Tríceps francês", 3, 12, "18kg")
+        ]
+      },
+      {
+        label: "Treino E - Pull hipertrofia",
+        exercises: [
+          ex("Puxada alta", accessorySets, 10, "60kg"),
+          ex("Remada baixa", accessorySets, 10, "60kg"),
+          ex("Pulldown", 3, 12, "35kg"),
+          ex("Face pull", 3, 15, "25kg"),
+          ex("Rosca alternada", 3, 12, "16kg"),
+          ex("Rosca Scott", 3, 12, "20kg")
+        ]
+      },
+      {
+        label: "Treino F - Pernas hipertrofia",
+        exercises: [
+          ex("Hack squat", accessorySets, 10, "90kg"),
+          ex("Stiff", accessorySets, 10, "70kg"),
+          ex("Cadeira extensora", 3, 12, "50kg"),
+          ex("Cadeira flexora", 3, 12, "40kg"),
+          ex("Panturrilha sentada", 4, 15, "45kg"),
+          ex("Abdominal na polia", 3, 12, "30kg")
+        ]
+      }
+    ];
+  }
+
+  return [
+    {
+      label: "Treino A - Push: peito, ombros e tríceps",
+      exercises: [
+        ex("Supino reto", mainSets, 8, "70kg"),
+        ex("Supino inclinado com halteres", accessorySets, 10, "34kg"),
+        ex("Crucifixo no cabo", 3, 12, "15kg"),
+        ex("Desenvolvimento militar", mainSets, 8, "35kg"),
+        ex("Elevação lateral", 4, 12, "12kg"),
+        ex("Tríceps testa", 3, 10, "25kg"),
+        ex("Tríceps corda", 3, 12, "25kg")
+      ]
+    },
+    {
+      label: "Treino B - Pull: costas, trapézio e bíceps",
+      exercises: [
+        ex("Barra fixa", mainSets, 8, "Peso corporal"),
+        ex("Remada curvada", mainSets, 8, "65kg"),
+        ex("Puxada alta", accessorySets, 10, "60kg"),
+        ex("Remada baixa", accessorySets, 10, "60kg"),
+        ex("Face pull", 3, 15, "25kg"),
+        ex("Rosca direta", 3, 10, "24kg"),
+        ex("Rosca martelo", 3, 12, "18kg")
+      ]
+    },
+    {
+      label: "Treino C - Pernas: quadríceps, posteriores e panturrilhas",
+      exercises: [
+        ex("Agachamento livre", mainSets, 8, "90kg"),
+        ex("Leg press", accessorySets, 10, "180kg"),
+        ex("Levantamento terra romeno", mainSets, 8, "80kg"),
+        ex("Cadeira extensora", 3, 12, "50kg"),
+        ex("Mesa flexora", 3, 12, "45kg"),
+        ex("Panturrilha em pé", 4, 12, "70kg"),
+        ex("Abdominal na polia", 3, 12, "30kg")
+      ]
+    },
+    {
+      label: "Treino D - Superiores hipertrofia",
+      exercises: [
+        ex("Supino inclinado", accessorySets, 10, "55kg"),
+        ex("Remada unilateral", accessorySets, 10, "34kg"),
+        ex("Pulldown", 3, 12, "35kg"),
+        ex("Desenvolvimento com halteres", 3, 10, "26kg"),
+        ex("Elevação lateral", 4, 15, "10kg"),
+        ex("Rosca Scott", 3, 12, "20kg"),
+        ex("Tríceps francês", 3, 12, "18kg")
+      ]
+    },
+    {
+      label: "Treino E - Inferiores e core",
+      exercises: [
+        ex("Hack squat", accessorySets, 10, "90kg"),
+        ex("Afundo com halteres", 3, 10, "24kg"),
+        ex("Stiff", accessorySets, 10, "70kg"),
+        ex("Cadeira flexora", 3, 12, "40kg"),
+        ex("Cadeira extensora", 3, 12, "45kg"),
+        ex("Panturrilha sentada", 4, 15, "45kg"),
+        ex("Prancha abdominal", 3, 45, "Peso corporal")
+      ]
+    }
+  ];
+}
+
+function templatesToWorkouts(templates: WorkoutTemplate[]) {
+  return templates.reduce<Record<string, WorkoutExercise[]>>((acc, template, index) => {
+    acc[String.fromCharCode(65 + index)] = template.exercises;
+    return acc;
+  }, {});
+}
+
+function formatWorkoutMessage(templates: WorkoutTemplate[]) {
+  return [
+    "Refiz seu treino e atualizei a Rotina com uma prescrição mais completa.",
+    "",
+    ...templates.map((template) => {
+      const exercises = template.exercises.map((exercise) => exercise.name).join(", ");
+      return `${template.label}: ${exercises}.`;
+    }),
+    "",
+    "Confere a Rotina e me diz se quer ajustar algum grupo muscular, exercício ou carga."
+  ].join("\n");
+}
+
+function normalizeWorkoutPlan(data: OnboardingResponse, currentPreviewData: any, messages: ChatMessage[]) {
+  const previewData = mergePreviewData(currentPreviewData, data.previewData || {});
+  const workouts = previewData.workouts;
+
+  if (!shouldReplaceShallowWorkout(workouts, previewData, messages)) {
+    return data;
+  }
+
+  const trainingDays = inferTrainingDays(previewData, messages);
+  const experience = inferExperience(previewData, messages);
+  const templates = buildWorkoutTemplates(trainingDays, experience);
+  const profile = {
+    ...(previewData.profile || {}),
+    trainingDaysPerWeek: trainingDays,
+    experience
+  };
+
+  return {
+    ...data,
+    message: formatWorkoutMessage(templates),
+    previewData: {
+      ...(data.previewData || {}),
+      profile,
+      workouts: templatesToWorkouts(templates)
+    }
+  };
+}
+
 export async function POST(req: Request) {
   try {
     const { userId } = await auth();
@@ -140,7 +538,11 @@ Você DEVE usar esses dados como contexto clínico/prático: perfil, experiênci
     });
 
     const contentText = response.choices[0].message?.content || "{}";
-    const data = JSON.parse(contentText) as OnboardingResponse;
+    const data = normalizeWorkoutPlan(
+      JSON.parse(contentText) as OnboardingResponse,
+      currentPreviewData,
+      chatMessages
+    );
 
     return NextResponse.json(data);
   } catch (error: any) {
