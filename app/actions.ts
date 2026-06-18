@@ -751,7 +751,9 @@ export type UserProfile = {
   isOnboarded: boolean;
   gender?: "masculino" | "feminino" | "outro";
   age?: number;
+  experience?: "iniciante" | "intermediario" | "avancado";
   goal?: "hipertrofia" | "emagrecimento" | "saude";
+  trainingDaysPerWeek?: number;
   biometrics?: {
     height?: number; // em cm
     weight?: number; // em kg
@@ -863,7 +865,9 @@ export async function completeOnboardingAction(
         isOnboarded: true,
         gender: profileData.gender,
         age: Number(profileData.age),
+        experience: profileData.experience,
         goal: profileData.goal,
+        trainingDaysPerWeek: profileData.trainingDaysPerWeek ? Number(profileData.trainingDaysPerWeek) : undefined,
         biometrics: profileData.biometrics ? {
           height: profileData.biometrics.height ? Number(profileData.biometrics.height) : undefined,
           weight: profileData.biometrics.weight ? Number(profileData.biometrics.weight) : undefined,
@@ -923,7 +927,9 @@ export async function getOnboardingAdjustmentDataAction(): Promise<UserProfile |
     profile: {
       gender: profile.gender,
       age: profile.age,
+      experience: profile.experience,
       goal: profile.goal,
+      trainingDaysPerWeek: profile.trainingDaysPerWeek,
     },
     biometrics: profile.biometrics || {},
     diet: [],
@@ -993,7 +999,9 @@ export async function getUserRoutineAction(): Promise<any> {
     profile: {
       gender: profile.gender,
       age: profile.age,
+      experience: profile.experience,
       goal: profile.goal,
+      trainingDaysPerWeek: profile.trainingDaysPerWeek,
     },
     biometrics: profile.biometrics || {},
     diet: [],
@@ -1162,5 +1170,3 @@ export async function getStatisticsDataAction(): Promise<{
 
   return data;
 }
-
-

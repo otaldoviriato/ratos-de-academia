@@ -69,6 +69,15 @@ function didRoutinePresentationChange(prev: any, next: any) {
   return prevWorkouts !== nextWorkouts || prevDiet !== nextDiet;
 }
 
+function getTrainingDays(daysPerWeek?: number) {
+  const days = Number(daysPerWeek);
+  if (days <= 2) return [1, 4].slice(0, Math.max(days, 1));
+  if (days === 3) return [1, 3, 5];
+  if (days === 4) return [1, 2, 4, 5];
+  if (days >= 6) return [1, 2, 3, 4, 5, 6].slice(0, Math.min(days, 6));
+  return [1, 2, 3, 4, 5];
+}
+
 type Message = {
   role: "user" | "assistant" | "system";
   content: string;
@@ -339,7 +348,9 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
       const profileData: Omit<UserProfile, "userId" | "isOnboarded"> = {
         gender: previewData.profile?.gender || "outro",
         age: previewData.profile?.age || 20,
+        experience: previewData.profile?.experience,
         goal: previewData.profile?.goal || "saude",
+        trainingDaysPerWeek: previewData.profile?.trainingDaysPerWeek,
         biometrics: {
           height: previewData.biometrics?.height,
           weight: previewData.biometrics?.weight,
@@ -373,7 +384,7 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
           frequency: {
             type: "rotation",
             rotationRoutine: letters,
-            rotationDays: [1, 2, 3, 4, 5] // Seg a Sex padrão
+            rotationDays: getTrainingDays(previewData.profile?.trainingDaysPerWeek)
           },
           startDate: new Date().toISOString().split("T")[0],
           details: {
@@ -779,6 +790,18 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
                         <div className="bg-black/20 border border-white/5 p-3 rounded-xl">
                           <div className="text-zinc-500 mb-0.5">Idade</div>
                           <div className="font-semibold text-zinc-200">{previewData.profile.age} anos</div>
+                        </div>
+                      )}
+                      {previewData.profile?.experience && (
+                        <div className="bg-black/20 border border-white/5 p-3 rounded-xl">
+                          <div className="text-zinc-500 mb-0.5">Experiência</div>
+                          <div className="font-semibold text-zinc-200 capitalize">{previewData.profile.experience}</div>
+                        </div>
+                      )}
+                      {previewData.profile?.trainingDaysPerWeek && (
+                        <div className="bg-black/20 border border-white/5 p-3 rounded-xl">
+                          <div className="text-zinc-500 mb-0.5">Treino/Semana</div>
+                          <div className="font-semibold text-zinc-200">{previewData.profile.trainingDaysPerWeek} dias</div>
                         </div>
                       )}
                       {previewData.profile?.goal && (

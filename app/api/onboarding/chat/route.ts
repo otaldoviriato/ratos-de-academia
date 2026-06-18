@@ -13,172 +13,6 @@ type OnboardingResponse = {
   finished?: boolean;
 };
 
-function normalizeText(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
-}
-
-function lastUserText(messages: ChatMessage[]) {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    if (messages[i]?.role === "user") return messages[i].content || "";
-  }
-  return "";
-}
-
-function allConversationText(messages: ChatMessage[]) {
-  return messages.map((message) => message.content || "").join("\n");
-}
-
-function hasWaitingPromise(message: string) {
-  const text = normalizeText(message);
-  return [
-    "um momento",
-    "aguarde",
-    "vou elaborar",
-    "vou preparar",
-    "vou montar",
-    "estou montando",
-    "ja te entrego",
-    "ja te envio",
-    "vou registrar isso agora",
-    "vou refazer"
-  ].some((pattern) => text.includes(pattern));
-}
-
-function hasIncompleteDelivery(message: string) {
-  const trimmed = message.trim();
-  if (!trimmed) return true;
-  if (trimmed.endsWith(":")) return true;
-
-  const text = normalizeText(trimmed);
-  return [
-    "aqui esta uma nova proposta de treino para voce",
-    "aqui esta o treino para voce",
-    "aqui esta a dieta para voce",
-    "segue o treino",
-    "segue a dieta",
-    "aqui esta uma nova proposta",
-    "aqui esta a nova proposta",
-    "considerando cinco dias de treino por semana",
-    "considerando 5 dias de treino por semana"
-  ].some((pattern) => text.endsWith(pattern) || text.endsWith(`${pattern}:`));
-}
-
-function hasWorkflowChange(data: OnboardingResponse, previousPreviewData: any) {
-  const nextPreview = data.previewData || {};
-  const previousWorkouts = JSON.stringify(previousPreviewData?.workouts || {});
-  const nextWorkouts = JSON.stringify(nextPreview.workouts || {});
-  const previousDiet = JSON.stringify(previousPreviewData?.diet || []);
-  const nextDiet = JSON.stringify(nextPreview.diet || []);
-
-  return previousWorkouts !== nextWorkouts || previousDiet !== nextDiet;
-}
-
-function hasExplicitWorkoutConstraints(text: string) {
-  return [
-    "pouco tempo",
-    "treino curto",
-    "ultracurto",
-    "rapido",
-    "rápido",
-    "30 minutos",
-    "20 minutos",
-    "lesao",
-    "lesão",
-    "dor",
-    "em casa",
-    "sem equipamento",
-    "equipamento limitado",
-    "apenas halter",
-    "so halter",
-    "só halter",
-    "calistenia"
-  ].some((pattern) => normalizeText(text).includes(normalizeText(pattern)));
-}
-
-function isAdvancedContext(text: string, previewData: any) {
-  const normalized = normalizeText(text);
-  return (
-    normalized.includes("avancado") ||
-    normalized.includes("avançado") ||
-    normalizeText(previewData?.profile?.experience || "").includes("avancado")
-  );
-}
-
-function hasWeakAdvancedWorkout(data: OnboardingResponse, currentPreviewData: any, messages: ChatMessage[]) {
-  const nextWorkouts = data.previewData?.workouts;
-  if (!nextWorkouts || typeof nextWorkouts !== "object") return false;
-
-  const conversationText = allConversationText(messages);
-  if (hasExplicitWorkoutConstraints(conversationText)) return false;
-
-  const workoutDays = Object.values(nextWorkouts).filter(Array.isArray) as any[][];
-  if (workoutDays.length === 0) return false;
-
-  const lastUserMessage = normalizeText(lastUserText(messages));
-  const hasWorkoutRequest =
-    lastUserMessage.includes("treino") ||
-    lastUserMessage.includes("faz de novo") ||
-    lastUserMessage.includes("de novo") ||
-    lastUserMessage.includes("refaz") ||
-    lastUserMessage.includes("reformula");
-  const workoutsChanged = JSON.stringify(currentPreviewData?.workouts || {}) !== JSON.stringify(nextWorkouts || {});
-  if (!hasWorkoutRequest && !workoutsChanged) return false;
-
-  const allDaysAreTiny = workoutDays.every((day) => day.length <= 3);
-  const hasManyWorkoutDays = workoutDays.length >= 4;
-  const advancedContext = isAdvancedContext(conversationText, data.previewData || currentPreviewData || {});
-
-  return allDaysAreTiny && (hasManyWorkoutDays || advancedContext);
-}
-
-function validateOnboardingResponse(data: OnboardingResponse, currentPreviewData: any, messages: ChatMessage[]) {
-  const failures: string[] = [];
-  const message = data.message || "";
-
-  if (hasWaitingPromise(message)) {
-    failures.push("A mensagem promete que algo será feito depois, mas o chat só responde após nova mensagem do usuário.");
-  }
-
-  if (hasIncompleteDelivery(message)) {
-    failures.push("A mensagem anuncia uma entrega, mas está incompleta ou termina como introdução.");
-  }
-
-  if (hasWorkflowChange(data, currentPreviewData) && message.length < 80) {
-    failures.push("O preview foi alterado, mas a mensagem não resume de forma suficiente o que mudou.");
-  }
-
-  if (hasWeakAdvancedWorkout(data, currentPreviewData, messages)) {
-    failures.push("O treino gerado parece subprescrito para um usuário avançado sem restrições claras; refaça com uma prescrição mais defensável.");
-  }
-
-  return failures;
-}
-
-function buildGuardFeedback(validationFailures: string[]) {
-  return `A resposta anterior foi bloqueada pelo validador do produto pelos seguintes motivos:
-${validationFailures.map((failure) => `- ${failure}`).join("\n")}
-
-Refaça a resposta agora. Regras inegociáveis:
-- Não termine a mensagem com dois pontos.
-- Não escreva "aqui está", "segue" ou "nova proposta" se a mensagem não tiver um resumo concreto depois.
-- Não prometa mensagem futura. Entregue tudo neste mesmo turno.
-- Se o usuário pediu para refazer treino ou dieta, atualize o previewData correspondente agora.
-- Para treino normal de musculação sem restrição clara, não devolva uma divisão inteira com sessões rasas de 2 ou 3 exercícios por dia. A prescrição precisa parecer defensável para o perfil informado.
-
-Retorne apenas JSON puro.`;
-}
-
-function buildSafeFallback(data: OnboardingResponse, currentPreviewData: any): OnboardingResponse {
-  return {
-    message: "Não consegui gerar uma proposta boa o suficiente nesse formato. Me diga se você quer manter a divisão atual ou mudar frequência, objetivo ou algum grupo muscular, que eu refaço a prescrição completa.",
-    previewData: currentPreviewData || data.previewData || {},
-    finished: false
-  };
-}
-
 export async function POST(req: Request) {
   try {
     const { userId } = await auth();
@@ -199,21 +33,21 @@ Sua missão é atuar como um Personal Trainer e Nutricionista virtual, conduzind
 
 INSTRUÇÕES IMPORTANTES DE DIÁLOGO:
 1. NÃO USE formatação Markdown crua como asteriscos (ex: **negrito**), marcadores de título (ex: # Título) ou outras tags semelhantes na propriedade "message". Retorne texto simples, limpo e bem formatado com parágrafos simples e emojis apropriados.
-2. PERGUNTE UMA ÚNICA COISA DE CADA VEZ. Nunca acumule várias perguntas em um único turno de conversa. Mantenha suas mensagens curtas (no máximo 2 ou 3 frases).
+2. PERGUNTE UMA ÚNICA COISA DE CADA VEZ. Nunca acumule várias perguntas em um único turno de conversa. Em perguntas simples e confirmações, mantenha suas mensagens curtas (no máximo 2 ou 3 frases).
 3. Responda sempre no formato JSON válido com os seguintes campos:
    - "message": A mensagem amigável (sem marcações markdown cruas) para o usuário.
    - "previewData": Objeto JSON contendo os dados estruturados validados.
    - "finished": Booleano (true/false) indicando se tudo foi finalizado e confirmado.
-4. RESPOSTA E AÇÃO SIMULTÂNEAS: Quando o usuário solicitar ou você fizer alterações na rotina/dieta/treinos no "previewData", você DEVE fornecer uma resposta completa e amigável na propriedade "message" informando brevemente o que foi feito, orientando o usuário a conferir as atualizações aplicadas no painel lateral de preview ao lado e perguntando se ele aprova ou deseja ajustar algo.
+4. RESPOSTA E AÇÃO SIMULTÂNEAS: Quando o usuário solicitar ou você fizer alterações na rotina/dieta/treinos no "previewData", você DEVE atualizar o "previewData" e também descrever a entrega na propriedade "message". Para treino ou dieta, a mensagem não deve ser curta demais: ela precisa trazer redundantemente a divisão/lista criada, porque o usuário pode estar no mobile e não ver o preview imediatamente.
 5. NUNCA DEIXE MENSAGENS INCOMPLETAS: Garanta que a propriedade "message" seja sempre uma frase completa e conclusiva. Nunca termine com dois pontos (ex: "Aqui está:") ou de forma abrupta, e nunca envie uma mensagem vazia que pareça ter sido cortada.
 6. NUNCA PROMETA UMA MENSAGEM FUTURA: O chat funciona por turnos e você só responde depois de uma mensagem do usuário. Portanto, não diga "aguarde", "um momento", "vou preparar", "vou montar", "já te entrego" ou frases semelhantes. Se precisar criar ou refazer treino/dieta, faça isso integralmente nesta mesma resposta.
-7. SE DISSER QUE VAI MOSTRAR ALGO, MOSTRE OU RESUMA: Não escreva "aqui está", "segue" ou "nova proposta:" sem entregar um resumo concreto na própria mensagem e sem atualizar o "previewData".
+7. SE DISSER QUE VAI MOSTRAR ALGO, MOSTRE NA MESMA MENSAGEM: Não escreva "aqui está", "segue" ou "nova proposta:" sem listar o conteúdo logo depois. Nunca termine a mensagem com dois pontos.
 
 SEQUÊNCIA DE ETAPAS (UMA PERGUNTA POR VEZ):
 - ETAPA 1 (DADOS BÁSICOS):
   1. Pergunte apenas o gênero do usuário.
   2. Após ele responder, pergunte a idade dele.
-  3. Após ele responder, pergunte sobre a experiência dele com musculação (iniciante, intermediário, avançado).
+  3. Após ele responder, pergunte sobre a experiência dele com musculação (iniciante, intermediário, avançado) e salve a resposta em "previewData.profile.experience".
 - ETAPA 2 (COMPOSIÇÃO CORPORAL):
   1. Pergunte se ele possui exame de bioimpedância recente ou se prefere fornecer apenas peso e altura (e avise que ele pode anexar o exame em formato de foto).
   2. Se ele disser peso/altura: pergunte primeiro a altura (em cm). Depois, pergunte o peso (em kg).
@@ -225,13 +59,15 @@ SEQUÊNCIA DE ETAPAS (UMA PERGUNTA POR VEZ):
   1. Pergunte se ele já segue uma dieta ou quer uma sugestão.
   2. Se quer sugestão, apresente a divisão de refeições proposta (com Whey, Creatina inclusos). Pergunte se ele aprova essa dieta.
   3. IMPORTANTE: Ao criar a dieta no "previewData" (no campo "diet"), divida-a por REFEIÇÕES (ex: Café da Manhã, Almoço, Café da Tarde, Jantar, Ceia, etc. - você pode criar, renomear ou remover refeições conforme as necessidades do usuário). Dentro de cada refeição (na propriedade "items"), insira cada alimento individualmente (ex: se o almoço tem Arroz e Frango, insira "Arroz Branco" e "Frango Grelhado" como dois registros separados no array de alimentos "items" da refeição "Almoço", permitindo que o usuário dê check em cada um individualmente). Nunca agrupe refeições inteiras em itens genéricos como "Marmita" ou "Lanche".
+  4. Quando criar ou refazer uma dieta, coloque a versão completa em "previewData.diet" e também escreva no "message" as refeições e principais alimentos/quantidades. Não diga apenas que atualizou o painel.
 - ETAPA 5 (TREINO):
-  1. Pergunte quantos dias ele pretende treinar por semana.
+  1. Pergunte quantos dias ele pretende treinar por semana e salve a resposta em "previewData.profile.trainingDaysPerWeek".
   2. Proponha a divisão de treinos ideal para o contexto do usuário, sem se prender a um modelo fixo. A divisão pode ser Full Body, AB, ABC, ABCD, ABCDE ou outra estrutura coerente, conforme frequência semanal, nível, objetivo, dados corporais, recuperação e informações já coletadas.
   3. Ao criar o "workouts", aja como um profissional de educação física: escolha exercícios, volume, séries, repetições e distribuição muscular que façam sentido para aquele perfil. Um usuário adulto saudável fazendo musculação normal não deve receber um treino genérico ou subprescrito; cada dia precisa parecer uma sessão real e defensável de academia para o objetivo informado.
   4. Não use quantidade fixa obrigatória de exercícios. Se 2 exercícios forem realmente ideais para um contexto específico, use 2; se 8 forem necessários, use 8. A quantidade deve nascer da prescrição correta, não de uma regra artificial.
   5. Monte cada dia com coerência de grupos musculares, priorizando movimentos compostos quando apropriado e complementando com isoladores conforme objetivo, nível e recuperação. Evite combinações pobres como um treino normal de peito/tríceps com apenas "Supino Reto" e "Tríceps na Polia" quando não houver justificativa clínica, logística ou de tempo.
   6. IMPORTANTE: Ao preencher o campo "load" dos exercícios de musculação em "workouts", use sempre valores em kg (ex: "20kg", "35kg", "50kg"). Nunca use percentual de 1RM (como "70% 1RM") nem expressões subjetivas (como "moderada", "pesada").
+  7. Quando criar ou refazer um treino, coloque a versão completa em "previewData.workouts" e também escreva no "message" a divisão e os exercícios por treino. Exemplo de formato da mensagem: "Refiz seu treino e atualizei a Rotina.\nTreino A - Peito e tríceps: Supino reto, Supino inclinado, Crucifixo, Paralelas, Tríceps corda.\nTreino B - Costas e bíceps: ...\nConfere a Rotina e me diz se quer ajustar algo."
 - ETAPA 6 (CARDIO):
   1. Pergunte se ele gostaria de fazer exercícios aeróbicos (tipo, duração, intensidade).
 - ETAPA 7 (MEDICAMENTOS):
@@ -241,6 +77,7 @@ SEQUÊNCIA DE ETAPAS (UMA PERGUNTA POR VEZ):
 
 REGRAS DO "previewData":
 - Só inclua os dados no "previewData" à medida que forem combinados e confirmados. Não adivinhe ou crie dados futuros.
+- Todo dado coletado deve ser preservado no "previewData": gênero, idade, experiência, objetivo, dias de treino por semana, biometria completa, TMB, dieta, treinos, aeróbico e medicamentos. Use todos esses dados como contexto ao criar treino ou dieta.
 - No campo "load" de "workouts", defina sempre a carga em kg (ex: "15kg", "25kg", "40kg"). Nunca use termos subjetivos ou percentuais de 1RM.
 - No campo "workouts", cada chave de treino (ex: "A", "B", "C") deve conter uma sessão completa e coerente para aquele dia, com exercícios, séries, repetições e carga em kg para todos.
 - Antes de devolver o "workouts", revise mentalmente se a prescrição está compatível com idade, gênero, objetivo, frequência semanal, nível declarado, recuperação e dados corporais. Se parecer um treino incompleto, genérico ou fraco para o cenário informado, melhore a prescrição antes de responder.
@@ -249,7 +86,9 @@ REGRAS DO "previewData":
     "profile": {
       "gender": "masculino" | "feminino" | "outro",
       "age": number,
-      "goal": "hipertrofia" | "emagrecimento" | "saude"
+      "experience": "iniciante" | "intermediario" | "avancado",
+      "goal": "hipertrofia" | "emagrecimento" | "saude",
+      "trainingDaysPerWeek": number
     },
     "biometrics": {
       "height": number,
@@ -284,37 +123,22 @@ Retorne apenas o JSON puro, sem blocos de código markdown como \`\`\`json.`;
 
     let finalSystemPrompt = systemPrompt;
     if (currentPreviewData && Object.keys(currentPreviewData).length > 0) {
-      finalSystemPrompt += `\n\nATENÇÃO: A rotina atual planejada do usuário contém os seguintes dados de preview:\n${JSON.stringify(currentPreviewData)}\n
-Você DEVE incluir integralmente todos esses dados nas chaves correspondentes do seu objeto "previewData" de retorno, realizando apenas as edições, inclusões ou exclusões solicitadas explicitamente pelo usuário na conversa. Nunca devolva chaves de treinos ("workouts"), dieta ("diet"), cardio ("aerobic"), perfil ("profile") ou biometria ("biometrics") vazias ou zeradas se esses dados já existiam no preview anterior e o usuário não pediu para excluí-los.`;
+      finalSystemPrompt += `\n\nATENÇÃO: Estes são TODOS os dados estruturados coletados até agora e eles são a fonte de verdade para criar treino/dieta:\n${JSON.stringify(currentPreviewData)}\n
+Você DEVE usar esses dados como contexto clínico/prático: perfil, experiência, dias de treino, objetivo, biometria, TMB, gordura corporal, massa muscular, dieta, treinos, aeróbico e medicamentos. Também DEVE incluir integralmente esses dados nas chaves correspondentes do seu objeto "previewData" de retorno, realizando apenas as edições, inclusões ou exclusões solicitadas explicitamente pelo usuário na conversa. Nunca devolva chaves de treinos ("workouts"), dieta ("diet"), cardio ("aerobic"), perfil ("profile") ou biometria ("biometrics") vazias ou zeradas se esses dados já existiam no preview anterior e o usuário não pediu para excluí-los.`;
     }
 
-    const runCompletion = async (guardFeedback?: string) => {
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: finalSystemPrompt },
-          ...(guardFeedback ? [{ role: "system" as const, content: guardFeedback }] : []),
-          ...chatMessages
-        ],
-        temperature: guardFeedback ? 0.3 : 0.7,
-      });
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: finalSystemPrompt },
+        ...chatMessages
+      ],
+      temperature: 0.7,
+    });
 
-      const contentText = response.choices[0].message?.content || "{}";
-      return JSON.parse(contentText) as OnboardingResponse;
-    };
-
-    let data = await runCompletion();
-    let validationFailures = validateOnboardingResponse(data, currentPreviewData, chatMessages);
-
-    for (let attempt = 0; validationFailures.length > 0 && attempt < 3; attempt++) {
-      data = await runCompletion(buildGuardFeedback(validationFailures));
-      validationFailures = validateOnboardingResponse(data, currentPreviewData, chatMessages);
-    }
-
-    if (validationFailures.length > 0) {
-      data = buildSafeFallback(data, currentPreviewData);
-    }
+    const contentText = response.choices[0].message?.content || "{}";
+    const data = JSON.parse(contentText) as OnboardingResponse;
 
     return NextResponse.json(data);
   } catch (error: any) {
