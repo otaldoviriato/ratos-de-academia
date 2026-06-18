@@ -58,6 +58,17 @@ function mergePreviewData(prev: any, next: any) {
   return merged;
 }
 
+function didRoutinePresentationChange(prev: any, next: any) {
+  if (!next) return false;
+
+  const prevWorkouts = JSON.stringify(prev?.workouts || {});
+  const nextWorkouts = JSON.stringify(next?.workouts || {});
+  const prevDiet = JSON.stringify(prev?.diet || []);
+  const nextDiet = JSON.stringify(next?.diet || []);
+
+  return prevWorkouts !== nextWorkouts || prevDiet !== nextDiet;
+}
+
 type Message = {
   role: "user" | "assistant" | "system";
   content: string;
@@ -198,6 +209,9 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
 
       if (data.previewData) {
         setPreviewData(mergedPreview);
+        if (didRoutinePresentationChange(previewData, mergedPreview)) {
+          setShowPreview(true);
+        }
       }
 
       if (data.finished !== undefined) {
@@ -285,6 +299,9 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
 
         if (data.previewData) {
           setPreviewData(mergedPreview);
+          if (didRoutinePresentationChange(previewData, mergedPreview)) {
+            setShowPreview(true);
+          }
         }
 
         if (data.finished !== undefined) {

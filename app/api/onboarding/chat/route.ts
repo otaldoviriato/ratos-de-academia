@@ -2,6 +2,148 @@ import { auth } from "@clerk/nextjs/server";
 import { openai } from "../../../../lib/openai";
 import { NextResponse } from "next/server";
 
+type ChatMessage = {
+  role: "system" | "user" | "assistant";
+  content: string;
+};
+
+type OnboardingResponse = {
+  message?: string;
+  previewData?: any;
+  finished?: boolean;
+};
+
+function normalizeText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function lastUserText(messages: ChatMessage[]) {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]?.role === "user") return messages[i].content || "";
+  }
+  return "";
+}
+
+function allConversationText(messages: ChatMessage[]) {
+  return messages.map((message) => message.content || "").join("\n");
+}
+
+function hasWaitingPromise(message: string) {
+  const text = normalizeText(message);
+  return [
+    "um momento",
+    "aguarde",
+    "vou elaborar",
+    "vou preparar",
+    "vou montar",
+    "estou montando",
+    "ja te entrego",
+    "ja te envio",
+    "vou registrar isso agora",
+    "vou refazer"
+  ].some((pattern) => text.includes(pattern));
+}
+
+function hasIncompleteDelivery(message: string) {
+  const trimmed = message.trim();
+  if (!trimmed) return true;
+  if (trimmed.endsWith(":")) return true;
+
+  const text = normalizeText(trimmed);
+  return [
+    "aqui esta uma nova proposta de treino para voce",
+    "aqui esta o treino para voce",
+    "aqui esta a dieta para voce",
+    "segue o treino",
+    "segue a dieta"
+  ].some((pattern) => text.endsWith(pattern));
+}
+
+function hasWorkflowChange(data: OnboardingResponse, previousPreviewData: any) {
+  const nextPreview = data.previewData || {};
+  const previousWorkouts = JSON.stringify(previousPreviewData?.workouts || {});
+  const nextWorkouts = JSON.stringify(nextPreview.workouts || {});
+  const previousDiet = JSON.stringify(previousPreviewData?.diet || []);
+  const nextDiet = JSON.stringify(nextPreview.diet || []);
+
+  return previousWorkouts !== nextWorkouts || previousDiet !== nextDiet;
+}
+
+function hasExplicitWorkoutConstraints(text: string) {
+  return [
+    "pouco tempo",
+    "treino curto",
+    "ultracurto",
+    "rapido",
+    "rápido",
+    "30 minutos",
+    "20 minutos",
+    "lesao",
+    "lesão",
+    "dor",
+    "em casa",
+    "sem equipamento",
+    "equipamento limitado",
+    "apenas halter",
+    "so halter",
+    "só halter",
+    "calistenia"
+  ].some((pattern) => normalizeText(text).includes(normalizeText(pattern)));
+}
+
+function isAdvancedContext(text: string, previewData: any) {
+  const normalized = normalizeText(text);
+  return (
+    normalized.includes("avancado") ||
+    normalized.includes("avançado") ||
+    normalizeText(previewData?.profile?.experience || "").includes("avancado")
+  );
+}
+
+function hasWeakAdvancedWorkout(data: OnboardingResponse, currentPreviewData: any, messages: ChatMessage[]) {
+  const nextWorkouts = data.previewData?.workouts;
+  if (!nextWorkouts || typeof nextWorkouts !== "object") return false;
+
+  const conversationText = allConversationText(messages);
+  if (!isAdvancedContext(conversationText, data.previewData || currentPreviewData || {})) return false;
+  if (hasExplicitWorkoutConstraints(conversationText)) return false;
+
+  const workoutDays = Object.values(nextWorkouts).filter(Array.isArray) as any[][];
+  if (workoutDays.length === 0) return false;
+
+  const hasWorkoutRequest = normalizeText(lastUserText(messages)).includes("treino");
+  const workoutsChanged = JSON.stringify(currentPreviewData?.workouts || {}) !== JSON.stringify(nextWorkouts || {});
+  if (!hasWorkoutRequest && !workoutsChanged) return false;
+
+  return workoutDays.every((day) => day.length <= 3);
+}
+
+function validateOnboardingResponse(data: OnboardingResponse, currentPreviewData: any, messages: ChatMessage[]) {
+  const failures: string[] = [];
+  const message = data.message || "";
+
+  if (hasWaitingPromise(message)) {
+    failures.push("A mensagem promete que algo será feito depois, mas o chat só responde após nova mensagem do usuário.");
+  }
+
+  if (hasIncompleteDelivery(message)) {
+    failures.push("A mensagem anuncia uma entrega, mas está incompleta ou termina como introdução.");
+  }
+
+  if (hasWorkflowChange(data, currentPreviewData) && message.length < 80) {
+    failures.push("O preview foi alterado, mas a mensagem não resume de forma suficiente o que mudou.");
+  }
+
+  if (hasWeakAdvancedWorkout(data, currentPreviewData, messages)) {
+    failures.push("O treino gerado parece subprescrito para um usuário avançado sem restrições claras; refaça com uma prescrição mais defensável.");
+  }
+
+  return failures;
+}
+
 export async function POST(req: Request) {
   try {
     const { userId } = await auth();
@@ -14,6 +156,7 @@ export async function POST(req: Request) {
     if (!messages || !Array.isArray(messages)) {
       return NextResponse.json({ error: "Histórico de mensagens inválido" }, { status: 400 });
     }
+    const chatMessages = messages as ChatMessage[];
 
     // Prompt de sistema que orienta a IA a ser amigável e guiar o onboarding passo a passo
     const systemPrompt = `Você é o assistente virtual do "Ratos de Academia", um aplicativo de planejamento e registro de treinos e hábitos saudáveis.
@@ -28,6 +171,8 @@ INSTRUÇÕES IMPORTANTES DE DIÁLOGO:
    - "finished": Booleano (true/false) indicando se tudo foi finalizado e confirmado.
 4. RESPOSTA E AÇÃO SIMULTÂNEAS: Quando o usuário solicitar ou você fizer alterações na rotina/dieta/treinos no "previewData", você DEVE fornecer uma resposta completa e amigável na propriedade "message" informando brevemente o que foi feito, orientando o usuário a conferir as atualizações aplicadas no painel lateral de preview ao lado e perguntando se ele aprova ou deseja ajustar algo.
 5. NUNCA DEIXE MENSAGENS INCOMPLETAS: Garanta que a propriedade "message" seja sempre uma frase completa e conclusiva. Nunca termine com dois pontos (ex: "Aqui está:") ou de forma abrupta, e nunca envie uma mensagem vazia que pareça ter sido cortada.
+6. NUNCA PROMETA UMA MENSAGEM FUTURA: O chat funciona por turnos e você só responde depois de uma mensagem do usuário. Portanto, não diga "aguarde", "um momento", "vou preparar", "vou montar", "já te entrego" ou frases semelhantes. Se precisar criar ou refazer treino/dieta, faça isso integralmente nesta mesma resposta.
+7. SE DISSER QUE VAI MOSTRAR ALGO, MOSTRE OU RESUMA: Não escreva "aqui está", "segue" ou "nova proposta:" sem entregar um resumo concreto na própria mensagem e sem atualizar o "previewData".
 
 SEQUÊNCIA DE ETAPAS (UMA PERGUNTA POR VEZ):
 - ETAPA 1 (DADOS BÁSICOS):
@@ -108,18 +253,31 @@ Retorne apenas o JSON puro, sem blocos de código markdown como \`\`\`json.`;
 Você DEVE incluir integralmente todos esses dados nas chaves correspondentes do seu objeto "previewData" de retorno, realizando apenas as edições, inclusões ou exclusões solicitadas explicitamente pelo usuário na conversa. Nunca devolva chaves de treinos ("workouts"), dieta ("diet"), cardio ("aerobic"), perfil ("profile") ou biometria ("biometrics") vazias ou zeradas se esses dados já existiam no preview anterior e o usuário não pediu para excluí-los.`;
     }
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: finalSystemPrompt },
-        ...messages
-      ],
-      temperature: 0.7,
-    });
+    const runCompletion = async (guardFeedback?: string) => {
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o-mini",
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: finalSystemPrompt },
+          ...(guardFeedback ? [{ role: "system" as const, content: guardFeedback }] : []),
+          ...chatMessages
+        ],
+        temperature: 0.7,
+      });
 
-    const contentText = response.choices[0].message?.content || "{}";
-    const data = JSON.parse(contentText);
+      const contentText = response.choices[0].message?.content || "{}";
+      return JSON.parse(contentText) as OnboardingResponse;
+    };
+
+    let data = await runCompletion();
+    const validationFailures = validateOnboardingResponse(data, currentPreviewData, chatMessages);
+
+    if (validationFailures.length > 0) {
+      data = await runCompletion(`A resposta anterior foi bloqueada pelo validador do produto pelos seguintes motivos:
+${validationFailures.map((failure) => `- ${failure}`).join("\n")}
+
+Refaça a resposta agora. Ela precisa ser completa neste mesmo turno, sem prometer mensagem futura. Se o usuário pediu para refazer treino ou dieta, atualize o previewData correspondente agora e escreva uma mensagem finalizada resumindo concretamente o que mudou. Retorne apenas JSON puro.`);
+    }
 
     return NextResponse.json(data);
   } catch (error: any) {
