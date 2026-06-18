@@ -43,6 +43,7 @@ import {
   resetOnboardingAction,
   getUserRoutineAction,
   getStatisticsDataAction,
+  estimateCaloriesAction,
   UserProfile,
   ActivityItem,
   PlanType,
@@ -703,6 +704,7 @@ export default function Home() {
                           key={item.id}
                           item={item}
                           onEdit={() => setEditing(item)}
+                          onToggleCheck={() => handleToggleCheck(item)}
                         />
                       ))}
                     </div>
@@ -1388,10 +1390,12 @@ function LoginScreen() {
 
 function PlanRow({ 
   item, 
-  onEdit
+  onEdit,
+  onToggleCheck
 }: { 
   item: ActivityItem; 
   onEdit: () => void;
+  onToggleCheck?: () => void;
 }) {
   const info = useMemo(() => {
     switch (item.type) {
@@ -1451,24 +1455,41 @@ function PlanRow({
   const Icon = info.icon;
 
   const renderStatusIndicator = () => {
+    const handleButtonClick = (e: React.MouseEvent) => {
+      e.stopPropagation();
+      onToggleCheck?.();
+    };
+
     if (item.status === "done") {
       return (
-        <div className="flex items-center justify-center h-10 w-10 text-emerald-400">
+        <button
+          onClick={handleButtonClick}
+          className="flex items-center justify-center h-10 w-10 text-emerald-400 hover:scale-105 active:scale-95 transition cursor-pointer"
+          title="Marcar como pendente"
+        >
           <CheckCircle2 size={22} />
-        </div>
+        </button>
       );
     }
     if (item.status === "skipped") {
       return (
-        <div className="flex items-center justify-center h-10 w-10 text-red-500/80">
+        <button
+          onClick={handleButtonClick}
+          className="flex items-center justify-center h-10 w-10 text-red-500/80 hover:scale-105 active:scale-95 transition cursor-pointer"
+          title="Marcar como pendente"
+        >
           <XCircle size={22} />
-        </div>
+        </button>
       );
     }
     return (
-      <div className="flex items-center justify-center h-10 w-10 text-zinc-600">
+      <button
+        onClick={handleButtonClick}
+        className="flex items-center justify-center h-10 w-10 text-zinc-600 hover:text-zinc-400 hover:scale-105 active:scale-95 transition cursor-pointer"
+        title="Concluir atividade"
+      >
         <Circle size={20} className="stroke-dasharray border-dashed opacity-60" />
-      </div>
+      </button>
     );
   };
 
@@ -1521,38 +1542,185 @@ function EditSheet({
   const todayStr = getLocalDateStr(new Date());
   const isFuture = dateStr > todayStr;
 
-  // Manipuladores de check individual
-  const setSubItemDoneStatus = (index: number, status: boolean, itemIdxInMeal?: number) => {
-    if (isFuture) return;
-    const nextDetails = { ...details };
+  // Estados para adição de novos itens
+  // Dieta
+  const [activeAddingMealIdx, setActiveAddingMealIdx] = useState<number | null>(null);
+  const [newFoodName, setNewFoodName] = useState("");
+  const [newFoodAmount, setNewFoodAmount] = useState("");
+  const [newFoodCalories, setNewFoodCalories] = useState<number | "">("");
+  const [isEstimatingCalories, setIsEstimatingCalories] = useState(false);
 
-    const getNewValue = (currentVal: boolean | undefined) => {
-      return currentVal === status ? undefined : status;
-    };
-    
-    if (item.type === "musculacao" && nextDetails.routine && nextDetails.workouts?.[nextDetails.routine]) {
-      const list = nextDetails.workouts[nextDetails.routine];
-      list[index].done = getNewValue(list[index].done);
-    } else if (item.type === "dieta") {
-      if (nextDetails.meals && typeof itemIdxInMeal === "number") {
-        const meal = nextDetails.meals[index];
-        if (meal && meal.items && meal.items[itemIdxInMeal]) {
-          meal.items[itemIdxInMeal].done = getNewValue(meal.items[itemIdxInMeal].done);
-        }
-      } else if (nextDetails.dietItems) {
-        nextDetails.dietItems[index].done = getNewValue(nextDetails.dietItems[index].done);
-      }
-    } else if (item.type === "medicamento" && nextDetails.meds) {
-      nextDetails.meds[index].done = getNewValue(nextDetails.meds[index].done);
-    } else if (item.type === "sangue" && nextDetails.bloodExams) {
-      nextDetails.bloodExams[index].done = getNewValue(nextDetails.bloodExams[index].done);
-    } else if (item.type === "aerobico" && nextDetails.aerobic) {
-      nextDetails.aerobic.done = getNewValue(nextDetails.aerobic.done);
-    } else if (item.type === "bioimpedancia" && nextDetails.bio) {
-      nextDetails.bio.done = getNewValue(nextDetails.bio.done);
+  // Musculação
+  const [showAddExercise, setShowAddExercise] = useState(false);
+  const [newExerciseName, setNewExerciseName] = useState("");
+  const [newExerciseSeries, setNewExerciseSeries] = useState(4);
+  const [newExerciseReps, setNewExerciseReps] = useState(10);
+  const [newExerciseLoad, setNewExerciseLoad] = useState("");
+
+  // Medicamento
+  const [showAddMed, setShowAddMed] = useState(false);
+  const [newMedName, setNewMedName] = useState("");
+  const [newMedDose, setNewMedDose] = useState("");
+  const [newMedTime, setNewMedTime] = useState("");
+
+  // Cardio
+  const [showAddCardio, setShowAddCardio] = useState(false);
+  const [newCardioName, setNewCardioName] = useState("Bicicleta");
+  const [newCardioDuration, setNewCardioDuration] = useState(30);
+
+  // Exame
+  const [showAddExam, setShowAddExam] = useState(false);
+  const [newExamName, setNewExamName] = useState("");
+
+  // Estimar calorias com IA para dieta
+  const handleEstimateDietCalories = async () => {
+    if (!newFoodName) return;
+    setIsEstimatingCalories(true);
+    try {
+      const description = `${newFoodAmount ? newFoodAmount + " de " : ""}${newFoodName}`;
+      const kcal = await estimateCaloriesAction(description, "dieta");
+      setNewFoodCalories(kcal);
+    } catch (err) {
+      console.error(err);
+      setNewFoodCalories(0);
+    } finally {
+      setIsEstimatingCalories(false);
     }
-    
-    setDetails(nextDetails);
+  };
+
+  // Confirmar adição de item de Dieta
+  const handleAddDietItem = (mealIdx: number) => {
+    if (!newFoodName) return;
+    const next = { ...details };
+    if (next.meals) {
+      const isDone = item.status === "done";
+      next.meals[mealIdx].items.push({
+        name: newFoodName,
+        amount: newFoodAmount || "1 dose",
+        calories: Number(newFoodCalories) || 0,
+        done: isDone ? true : undefined
+      });
+      setDetails(next);
+      // Limpa os estados
+      setNewFoodName("");
+      setNewFoodAmount("");
+      setNewFoodCalories("");
+      setActiveAddingMealIdx(null);
+    }
+  };
+
+  // Remover Item de Dieta
+  const handleRemoveDietItem = (mealIdx: number, itemIdx: number) => {
+    const next = { ...details };
+    if (next.meals) {
+      next.meals[mealIdx].items.splice(itemIdx, 1);
+      setDetails(next);
+    }
+  };
+
+  // Remover Exercício (Musculação)
+  const handleRemoveWorkoutExercise = (idx: number) => {
+    const next = { ...details };
+    if (next.routine && next.workouts?.[next.routine]) {
+      next.workouts[next.routine].splice(idx, 1);
+      setDetails(next);
+    }
+  };
+
+  // Adicionar Exercício (Musculação)
+  const handleAddWorkoutExercise = () => {
+    if (!newExerciseName) return;
+    const next = { ...details };
+    if (next.routine && next.workouts?.[next.routine]) {
+      const isDone = item.status === "done";
+      next.workouts[next.routine].push({
+        name: newExerciseName,
+        series: newExerciseSeries,
+        reps: newExerciseReps,
+        load: newExerciseLoad || "",
+        done: isDone ? true : undefined
+      });
+      setDetails(next);
+      // Limpa
+      setNewExerciseName("");
+      setNewExerciseSeries(4);
+      setNewExerciseReps(10);
+      setNewExerciseLoad("");
+      setShowAddExercise(false);
+    }
+  };
+
+  // Remover Medicamento
+  const handleRemoveMed = (idx: number) => {
+    const next = { ...details };
+    if (next.meds) {
+      next.meds.splice(idx, 1);
+      setDetails(next);
+    }
+  };
+
+  // Adicionar Medicamento
+  const handleAddMed = () => {
+    if (!newMedName || !newMedDose) return;
+    const next = { ...details };
+    if (!next.meds) next.meds = [];
+    const isDone = item.status === "done";
+    next.meds.push({
+      name: newMedName,
+      dose: newMedDose,
+      time: newMedTime || undefined,
+      done: isDone ? true : undefined
+    });
+    setDetails(next);
+    setNewMedName("");
+    setNewMedDose("");
+    setNewMedTime("");
+    setShowAddMed(false);
+  };
+
+  // Remover Exame
+  const handleRemoveExam = (idx: number) => {
+    const next = { ...details };
+    if (next.bloodExams) {
+      next.bloodExams.splice(idx, 1);
+      setDetails(next);
+    }
+  };
+
+  // Adicionar Exame
+  const handleAddExam = () => {
+    if (!newExamName) return;
+    const next = { ...details };
+    if (!next.bloodExams) next.bloodExams = [];
+    const isDone = item.status === "done";
+    next.bloodExams.push({
+      name: newExamName,
+      done: isDone ? true : undefined
+    });
+    setDetails(next);
+    setNewExamName("");
+    setShowAddExam(false);
+  };
+
+  // Remover Cardio
+  const handleRemoveCardio = () => {
+    const next = { ...details };
+    delete next.aerobic;
+    setDetails(next);
+  };
+
+  // Adicionar Cardio
+  const handleAddCardio = () => {
+    if (!newCardioName || !newCardioDuration) return;
+    const next = { ...details };
+    const isDone = item.status === "done";
+    next.aerobic = {
+      name: newCardioName,
+      duration: newCardioDuration,
+      done: isDone ? true : undefined
+    };
+    setDetails(next);
+    setShowAddCardio(false);
   };
 
   const getExerciseTextClass = (done?: boolean) => {
@@ -1597,18 +1765,89 @@ function EditSheet({
     }
   };
 
-  // Salvar ocorrência calculando status automaticamente
-  const handleSaveDecision = async (status?: "done" | "skipped") => {
+  // Salvar ocorrência mantendo o status atual e sincronizando os checks
+  const handleSaveDecision = async () => {
     setIsSaving(true);
     try {
+      const currentStatus = item.status;
+      const nextDetails = { ...details };
+      const routineLetter = nextDetails.routine;
+      
+      // Alinha os checks dos sub-itens de acordo com o status atual da atividade
+      if (currentStatus === "done") {
+        if (item.type === "musculacao" && routineLetter && nextDetails.workouts?.[routineLetter]) {
+          nextDetails.workouts[routineLetter] = nextDetails.workouts[routineLetter].map(e => ({ ...e, done: true }));
+        } else if (item.type === "dieta") {
+          if (nextDetails.meals) {
+            nextDetails.meals = nextDetails.meals.map(meal => ({
+              ...meal,
+              items: meal.items.map(it => ({ ...it, done: true }))
+            }));
+          } else if (nextDetails.dietItems) {
+            nextDetails.dietItems = nextDetails.dietItems.map(it => ({ ...it, done: true }));
+          }
+        } else if (item.type === "medicamento" && nextDetails.meds) {
+          nextDetails.meds = nextDetails.meds.map(it => ({ ...it, done: true }));
+        } else if (item.type === "aerobico" && nextDetails.aerobic) {
+          nextDetails.aerobic.done = true;
+        } else if (item.type === "bioimpedancia" && nextDetails.bio) {
+          nextDetails.bio.done = true;
+        } else if (item.type === "sangue" && nextDetails.bloodExams) {
+          nextDetails.bloodExams = nextDetails.bloodExams.map(it => ({ ...it, done: true }));
+        }
+      } else if (currentStatus === "skipped") {
+        if (item.type === "musculacao" && routineLetter && nextDetails.workouts?.[routineLetter]) {
+          nextDetails.workouts[routineLetter] = nextDetails.workouts[routineLetter].map(e => ({ ...e, done: false }));
+        } else if (item.type === "dieta") {
+          if (nextDetails.meals) {
+            nextDetails.meals = nextDetails.meals.map(meal => ({
+              ...meal,
+              items: meal.items.map(it => ({ ...it, done: false }))
+            }));
+          } else if (nextDetails.dietItems) {
+            nextDetails.dietItems = nextDetails.dietItems.map(it => ({ ...it, done: false }));
+          }
+        } else if (item.type === "medicamento" && nextDetails.meds) {
+          nextDetails.meds = nextDetails.meds.map(it => ({ ...it, done: false }));
+        } else if (item.type === "aerobico" && nextDetails.aerobic) {
+          nextDetails.aerobic.done = false;
+        } else if (item.type === "bioimpedancia" && nextDetails.bio) {
+          nextDetails.bio.done = false;
+        } else if (item.type === "sangue" && nextDetails.bloodExams) {
+          nextDetails.bloodExams = nextDetails.bloodExams.map(it => ({ ...it, done: false }));
+        }
+      } else {
+        // status is "pending", delete the "done" field to keep clean
+        if (item.type === "musculacao" && routineLetter && nextDetails.workouts?.[routineLetter]) {
+          nextDetails.workouts[routineLetter] = nextDetails.workouts[routineLetter].map(({ done, ...rest }) => rest);
+        } else if (item.type === "dieta") {
+          if (nextDetails.meals) {
+            nextDetails.meals = nextDetails.meals.map(meal => ({
+              ...meal,
+              items: meal.items.map(({ done, ...rest }) => rest)
+            }));
+          } else if (nextDetails.dietItems) {
+            nextDetails.dietItems = nextDetails.dietItems.map(({ done, ...rest }) => rest);
+          }
+        } else if (item.type === "medicamento" && nextDetails.meds) {
+          nextDetails.meds = nextDetails.meds.map(({ done, ...rest }) => rest);
+        } else if (item.type === "aerobico" && nextDetails.aerobic) {
+          delete nextDetails.aerobic.done;
+        } else if (item.type === "bioimpedancia" && nextDetails.bio) {
+          delete nextDetails.bio.done;
+        } else if (item.type === "sangue" && nextDetails.bloodExams) {
+          nextDetails.bloodExams = nextDetails.bloodExams.map(({ done, ...rest }) => rest);
+        }
+      }
+
       await updateActivityOccurrence(
         dateStr,
         item.planId || "",
         item.occurrenceId,
-        details,
+        nextDetails,
         "today",
         item.type,
-        status
+        currentStatus === "pending" ? undefined : currentStatus
       );
       onClose();
     } catch (err) {
@@ -1676,16 +1915,16 @@ function EditSheet({
             <div className="space-y-3">
               <p className="text-xs font-bold text-acid uppercase tracking-wider">Exercícios do Treino {details.routine}</p>
               {details.workouts[details.routine].map((ex, idx) => (
-                <div key={idx} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-black/20 p-2.5 rounded-lg border border-white/5">
+                <div key={idx} className="flex items-center justify-between gap-3 bg-black/20 p-2.5 rounded-lg border border-white/5">
                   <div className="flex-1 min-w-0">
-                    <p className={`text-sm font-bold truncate ${getExerciseTextClass(ex.done)}`}>
+                    <p className="text-sm font-bold truncate text-white">
                       {ex.name}
                     </p>
                     <p className="text-[11px] text-zinc-400">
                       {ex.series}x{ex.reps} reps
                     </p>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+                  <div className="flex items-center gap-2 shrink-0">
                     <input
                       type="text"
                       value={ex.load}
@@ -1693,35 +1932,89 @@ function EditSheet({
                       placeholder="kg"
                       className="w-16 h-8 text-center text-xs font-bold rounded bg-black/40 border border-white/10 text-white outline-none focus:border-acid"
                     />
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => setSubItemDoneStatus(idx, true)}
-                        className={`h-8 px-2.5 rounded-lg border text-xs font-bold flex items-center gap-1 transition cursor-pointer ${
-                          ex.done === true
-                            ? "border-acid bg-acid text-black shadow-md shadow-acid/10"
-                            : "border-white/10 text-zinc-400 hover:text-white hover:bg-white/5"
-                        }`}
-                      >
-                        <Check size={13} />
-                        Fiz
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSubItemDoneStatus(idx, false)}
-                        className={`h-8 px-2.5 rounded-lg border text-xs font-bold flex items-center gap-1 transition cursor-pointer ${
-                          ex.done === false
-                            ? "border-red-500 bg-red-500 text-white shadow-md shadow-red-500/10"
-                            : "border-white/10 text-zinc-400 hover:text-white hover:bg-white/5"
-                        }`}
-                      >
-                        <X size={13} />
-                        Não fiz
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveWorkoutExercise(idx)}
+                      className="h-8 w-8 rounded-lg border border-white/10 text-zinc-400 hover:text-red-400 flex items-center justify-center transition cursor-pointer"
+                      title="Remover exercício"
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </div>
                 </div>
               ))}
+
+              {!showAddExercise ? (
+                <button
+                  type="button"
+                  onClick={() => setShowAddExercise(true)}
+                  className="w-full h-9 rounded-lg border border-dashed border-white/10 hover:border-white/20 text-xs font-bold text-zinc-400 hover:text-white flex items-center justify-center gap-1.5 transition cursor-pointer"
+                >
+                  <Plus size={14} /> Adicionar Exercício
+                </button>
+              ) : (
+                <div className="bg-black/30 p-3 rounded-lg border border-white/5 space-y-3">
+                  <div className="text-[11px] font-bold text-zinc-400 uppercase">Novo Exercício</div>
+                  <div className="space-y-2">
+                    <label className="block">
+                      <span className="text-[10px] text-zinc-500 block mb-0.5">Nome do Exercício</span>
+                      <input
+                        type="text"
+                        value={newExerciseName}
+                        onChange={(e) => setNewExerciseName(e.target.value)}
+                        placeholder="Ex: Leg Press 45"
+                        className="w-full h-8 px-2 text-xs rounded bg-black/40 border border-white/10 text-white outline-none focus:border-acid"
+                      />
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      <label>
+                        <span className="text-[10px] text-zinc-500 block mb-0.5">Séries</span>
+                        <input
+                          type="number"
+                          value={newExerciseSeries}
+                          onChange={(e) => setNewExerciseSeries(Number(e.target.value))}
+                          className="w-full h-8 px-2 text-xs text-center rounded bg-black/40 border border-white/10 text-white outline-none focus:border-acid"
+                        />
+                      </label>
+                      <label>
+                        <span className="text-[10px] text-zinc-500 block mb-0.5">Reps</span>
+                        <input
+                          type="number"
+                          value={newExerciseReps}
+                          onChange={(e) => setNewExerciseReps(Number(e.target.value))}
+                          className="w-full h-8 px-2 text-xs text-center rounded bg-black/40 border border-white/10 text-white outline-none focus:border-acid"
+                        />
+                      </label>
+                      <label>
+                        <span className="text-[10px] text-zinc-500 block mb-0.5">Carga</span>
+                        <input
+                          type="text"
+                          value={newExerciseLoad}
+                          onChange={(e) => setNewExerciseLoad(e.target.value)}
+                          placeholder="Ex: 50kg"
+                          className="w-full h-8 px-2 text-xs text-center rounded bg-black/40 border border-white/10 text-white outline-none focus:border-acid"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowAddExercise(false)}
+                      className="px-3 h-8 text-xs font-bold rounded border border-white/10 text-zinc-400 hover:text-white cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleAddWorkoutExercise}
+                      className="px-3 h-8 text-xs font-bold rounded bg-acid text-black cursor-pointer"
+                    >
+                      Adicionar
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1739,131 +2032,315 @@ function EditSheet({
                       {meal.items.map((alimento, alimentoIdx) => (
                         <div key={alimentoIdx} className="flex items-center justify-between gap-3 bg-black/20 p-2.5 rounded-lg border border-white/5">
                           <div className="flex-1 min-w-0">
-                            <p className={`text-sm font-bold truncate ${getExerciseTextClass(alimento.done)}`}>
+                            <p className="text-sm font-bold truncate text-white">
                               {alimento.name}
                             </p>
                             <p className="text-[11px] text-zinc-400">
                               Qtd: {alimento.amount} • <span className="text-emerald-300 font-semibold">{alimento.calories} kcal</span>
                             </p>
                           </div>
-                          <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveDietItem(mealIdx, alimentoIdx)}
+                            className="h-8 w-8 rounded-lg border border-white/10 text-zinc-400 hover:text-red-400 flex items-center justify-center transition cursor-pointer"
+                            title="Remover alimento"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))}
+
+                      {activeAddingMealIdx !== mealIdx ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveAddingMealIdx(mealIdx);
+                            setNewFoodName("");
+                            setNewFoodAmount("");
+                            setNewFoodCalories("");
+                          }}
+                          className="w-full h-8 rounded-lg border border-dashed border-white/5 hover:border-white/10 text-[11px] font-bold text-zinc-500 hover:text-white flex items-center justify-center gap-1 transition cursor-pointer"
+                        >
+                          <Plus size={12} /> Adicionar item
+                        </button>
+                      ) : (
+                        <div className="bg-black/30 p-3 rounded-lg border border-white/5 space-y-2.5 mt-1">
+                          <div className="text-[10px] font-bold text-zinc-400 uppercase">Novo Alimento</div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <label className="block col-span-2 sm:col-span-1">
+                              <span className="text-[9px] text-zinc-500 block mb-0.5">Nome do Alimento</span>
+                              <input
+                                type="text"
+                                value={newFoodName}
+                                onChange={(e) => setNewFoodName(e.target.value)}
+                                placeholder="Ex: Frango grelhado"
+                                className="w-full h-8 px-2 text-xs rounded bg-black/40 border border-white/10 text-white outline-none focus:border-emerald-400"
+                              />
+                            </label>
+                            <label className="block col-span-2 sm:col-span-1">
+                              <span className="text-[9px] text-zinc-500 block mb-0.5">Quantidade</span>
+                              <input
+                                type="text"
+                                value={newFoodAmount}
+                                onChange={(e) => setNewFoodAmount(e.target.value)}
+                                placeholder="Ex: 150g"
+                                className="w-full h-8 px-2 text-xs rounded bg-black/40 border border-white/10 text-white outline-none focus:border-emerald-400"
+                              />
+                            </label>
+                          </div>
+                          
+                          <div className="flex items-end gap-2">
+                            <label className="flex-1">
+                              <span className="text-[9px] text-zinc-500 block mb-0.5">Calorias (kcal)</span>
+                              <input
+                                type="number"
+                                value={newFoodCalories}
+                                onChange={(e) => setNewFoodCalories(Number(e.target.value) || "")}
+                                placeholder="IA estima ou digite"
+                                className="w-full h-8 px-2 text-xs rounded bg-black/40 border border-white/10 text-white outline-none focus:border-emerald-400 font-bold text-emerald-300"
+                              />
+                            </label>
                             <button
                               type="button"
-                              onClick={() => setSubItemDoneStatus(mealIdx, true, alimentoIdx)}
-                              className={`h-8 px-2.5 rounded-lg border text-xs font-bold flex items-center gap-1 transition cursor-pointer ${
-                                alimento.done === true
-                                  ? "border-emerald-400 bg-emerald-400 text-black shadow-md shadow-emerald-400/10"
-                                  : "border-white/10 text-zinc-400 hover:text-white hover:bg-white/5"
-                              }`}
+                              disabled={isEstimatingCalories || !newFoodName}
+                              onClick={handleEstimateDietCalories}
+                              className="h-8 px-3 rounded bg-white/[0.06] border border-white/10 text-zinc-300 hover:text-white hover:bg-white/10 text-xs font-bold disabled:opacity-50 transition cursor-pointer flex items-center gap-1.5 shrink-0"
                             >
-                              <Check size={13} />
-                              Comi
+                              {isEstimatingCalories ? "Estimando..." : "Estimar com IA 🤖"}
+                            </button>
+                          </div>
+
+                          <div className="flex justify-end gap-2 text-[11px] pt-1">
+                            <button
+                              type="button"
+                              onClick={() => setActiveAddingMealIdx(null)}
+                              className="px-2.5 h-7 font-bold rounded border border-white/10 text-zinc-400 hover:text-white cursor-pointer"
+                            >
+                              Cancelar
                             </button>
                             <button
                               type="button"
-                              onClick={() => setSubItemDoneStatus(mealIdx, false, alimentoIdx)}
-                              className={`h-8 px-2.5 rounded-lg border text-xs font-bold flex items-center gap-1 transition cursor-pointer ${
-                                alimento.done === false
-                                  ? "border-red-500 bg-red-500 text-white shadow-md shadow-red-500/10"
-                                  : "border-white/10 text-zinc-400 hover:text-white hover:bg-white/5"
-                              }`}
+                              onClick={() => handleAddDietItem(mealIdx)}
+                              disabled={!newFoodName}
+                              className="px-2.5 h-7 font-bold rounded bg-emerald-400 text-black cursor-pointer disabled:opacity-50"
                             >
-                              <X size={13} />
-                              Não comi
+                              Adicionar
                             </button>
                           </div>
                         </div>
-                      ))}
+                      )}
                     </div>
                   </div>
                 ))
               ) : (
-                details.dietItems?.map((alimento, idx) => (
-                  <div key={idx} className="flex items-center justify-between gap-3 bg-black/20 p-2.5 rounded-lg border border-white/5">
-                    <div className="flex-1 min-w-0">
-                      <p className={`text-sm font-bold truncate ${getExerciseTextClass(alimento.done)}`}>
-                        {alimento.name}
-                      </p>
-                      <p className="text-[11px] text-zinc-400">
-                        Qtd: {alimento.amount} • <span className="text-emerald-300 font-semibold">{alimento.calories} kcal</span>
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
+                <div className="space-y-2">
+                  {details.dietItems?.map((alimento, idx) => (
+                    <div key={idx} className="flex items-center justify-between gap-3 bg-black/20 p-2.5 rounded-lg border border-white/5">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold truncate text-white">
+                          {alimento.name}
+                        </p>
+                        <p className="text-[11px] text-zinc-400">
+                          Qtd: {alimento.amount} • <span className="text-emerald-300 font-semibold">{alimento.calories} kcal</span>
+                        </p>
+                      </div>
                       <button
                         type="button"
-                        onClick={() => setSubItemDoneStatus(idx, true)}
-                        className={`h-8 px-2.5 rounded-lg border text-xs font-bold flex items-center gap-1 transition cursor-pointer ${
-                          alimento.done === true
-                            ? "border-emerald-400 bg-emerald-400 text-black shadow-md shadow-emerald-400/10"
-                            : "border-white/10 text-zinc-400 hover:text-white hover:bg-white/5"
-                        }`}
+                        onClick={() => {
+                          const next = { ...details };
+                          next.dietItems?.splice(idx, 1);
+                          setDetails(next);
+                        }}
+                        className="h-8 w-8 rounded-lg border border-white/10 text-zinc-400 hover:text-red-400 flex items-center justify-center transition cursor-pointer"
                       >
-                        <Check size={13} />
-                        Comi
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSubItemDoneStatus(idx, false)}
-                        className={`h-8 px-2.5 rounded-lg border text-xs font-bold flex items-center gap-1 transition cursor-pointer ${
-                          alimento.done === false
-                            ? "border-red-500 bg-red-500 text-white shadow-md shadow-red-500/10"
-                            : "border-white/10 text-zinc-400 hover:text-white hover:bg-white/5"
-                        }`}
-                      >
-                        <X size={13} />
-                        Não comi
+                        <Trash2 size={14} />
                       </button>
                     </div>
-                  </div>
-                ))
+                  ))}
+
+                  {activeAddingMealIdx !== 999 ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveAddingMealIdx(999);
+                        setNewFoodName("");
+                        setNewFoodAmount("");
+                        setNewFoodCalories("");
+                      }}
+                      className="w-full h-9 rounded-lg border border-dashed border-white/10 hover:border-white/20 text-xs font-bold text-zinc-400 hover:text-white flex items-center justify-center gap-1.5 transition cursor-pointer"
+                    >
+                      <Plus size={14} /> Adicionar Alimento
+                    </button>
+                  ) : (
+                    <div className="bg-black/30 p-3 rounded-lg border border-white/5 space-y-2.5">
+                      <div className="text-[11px] font-bold text-zinc-400 uppercase">Novo Alimento</div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <label className="block col-span-2 sm:col-span-1">
+                          <span className="text-[10px] text-zinc-500 block mb-0.5">Nome do Alimento</span>
+                          <input
+                            type="text"
+                            value={newFoodName}
+                            onChange={(e) => setNewFoodName(e.target.value)}
+                            placeholder="Ex: Banana"
+                            className="w-full h-8 px-2 text-xs rounded bg-black/40 border border-white/10 text-white outline-none focus:border-emerald-400"
+                          />
+                        </label>
+                        <label className="block col-span-2 sm:col-span-1">
+                          <span className="text-[10px] text-zinc-500 block mb-0.5">Quantidade</span>
+                          <input
+                            type="text"
+                            value={newFoodAmount}
+                            onChange={(e) => setNewFoodAmount(e.target.value)}
+                            placeholder="Ex: 1 unidade"
+                            className="w-full h-8 px-2 text-xs rounded bg-black/40 border border-white/10 text-white outline-none focus:border-emerald-400"
+                          />
+                        </label>
+                      </div>
+
+                      <div className="flex items-end gap-2">
+                        <label className="flex-1">
+                          <span className="text-[10px] text-zinc-500 block mb-0.5">Calorias (kcal)</span>
+                          <input
+                            type="number"
+                            value={newFoodCalories}
+                            onChange={(e) => setNewFoodCalories(Number(e.target.value) || "")}
+                            placeholder="IA estima ou digite"
+                            className="w-full h-8 px-2 text-xs rounded bg-black/40 border border-white/10 text-white outline-none focus:border-emerald-400 font-bold text-emerald-300"
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          disabled={isEstimatingCalories || !newFoodName}
+                          onClick={handleEstimateDietCalories}
+                          className="h-8 px-3 rounded bg-white/[0.06] border border-white/10 text-zinc-300 hover:text-white hover:bg-white/10 text-xs font-bold disabled:opacity-50 transition cursor-pointer flex items-center gap-1.5 shrink-0"
+                        >
+                          {isEstimatingCalories ? "Estimando..." : "Estimar com IA 🤖"}
+                        </button>
+                      </div>
+
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setActiveAddingMealIdx(null)}
+                          className="px-3 h-8 text-xs font-bold rounded border border-white/10 text-zinc-400 hover:text-white cursor-pointer"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!newFoodName) return;
+                            const next = { ...details };
+                            if (!next.dietItems) next.dietItems = [];
+                            const isDone = item.status === "done";
+                            next.dietItems.push({
+                              name: newFoodName,
+                              amount: newFoodAmount || "1 dose",
+                              calories: Number(newFoodCalories) || 0,
+                              done: isDone ? true : undefined
+                            });
+                            setDetails(next);
+                            setNewFoodName("");
+                            setNewFoodAmount("");
+                            setNewFoodCalories("");
+                            setActiveAddingMealIdx(null);
+                          }}
+                          disabled={!newFoodName}
+                          className="px-3 h-8 text-xs font-bold rounded bg-emerald-400 text-black cursor-pointer disabled:opacity-50"
+                        >
+                          Adicionar
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           )}
 
           {/* Cardio */}
-          {item.type === "aerobico" && details.aerobic && (
+          {item.type === "aerobico" && (
             <div className="space-y-3">
               <p className="text-xs font-bold text-cyan uppercase tracking-wider">Atividade Aeróbica</p>
-              <div className="bg-black/20 p-3 rounded-lg border border-white/5 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold text-white">{details.aerobic.name}</span>
-                  <div className="flex items-center gap-1.5">
+              {details.aerobic ? (
+                <div className="bg-black/20 p-3 rounded-lg border border-white/5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-bold text-white">{details.aerobic.name}</span>
                     <button
                       type="button"
-                      onClick={() => setSubItemDoneStatus(0, true)}
-                      className={`h-8 px-2.5 rounded-lg border text-xs font-bold flex items-center gap-1 transition cursor-pointer ${
-                        details.aerobic.done === true
-                          ? "border-cyan bg-cyan text-black shadow-md shadow-cyan/10"
-                          : "border-white/10 text-zinc-400 hover:text-white hover:bg-white/5"
-                      }`}
+                      onClick={handleRemoveCardio}
+                      className="h-8 w-8 rounded-lg border border-white/10 text-zinc-400 hover:text-red-400 flex items-center justify-center transition cursor-pointer"
+                      title="Remover Cardio"
                     >
-                      <Check size={13} />
-                      Fiz
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSubItemDoneStatus(0, false)}
-                      className={`h-8 px-2.5 rounded-lg border text-xs font-bold flex items-center gap-1 transition cursor-pointer ${
-                        details.aerobic.done === false
-                          ? "border-red-500 bg-red-500 text-white shadow-md shadow-red-500/10"
-                          : "border-white/10 text-zinc-400 hover:text-white hover:bg-white/5"
-                      }`}
-                    >
-                      <X size={13} />
-                      Não fiz
+                      <Trash2 size={14} />
                     </button>
                   </div>
+                  <label className="block">
+                    <span className="text-xs text-zinc-400 mb-1 block">Duração (minutos)</span>
+                    <input
+                      type="number"
+                      value={details.aerobic.duration}
+                      onChange={(e) => handleAerobicDurationChange(Number(e.target.value))}
+                      className="w-full h-10 px-3 rounded-lg bg-black/40 border border-white/10 text-white outline-none focus:border-cyan"
+                    />
+                  </label>
                 </div>
-                <label className="block">
-                  <span className="text-xs text-zinc-400 mb-1 block">Duração (minutos)</span>
-                  <input
-                    type="number"
-                    value={details.aerobic.duration}
-                    onChange={(e) => handleAerobicDurationChange(Number(e.target.value))}
-                    className="w-full h-10 px-3 rounded-lg bg-black/40 border border-white/10 text-white outline-none focus:border-cyan"
-                  />
-                </label>
-              </div>
+              ) : (
+                !showAddCardio ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAddCardio(true);
+                      setNewCardioName("Bicicleta");
+                      setNewCardioDuration(30);
+                    }}
+                    className="w-full h-12 rounded-xl border border-dashed border-white/10 hover:border-white/20 text-xs font-bold text-zinc-400 hover:text-white flex items-center justify-center gap-1.5 transition cursor-pointer"
+                  >
+                    <Plus size={16} /> Adicionar Cardio
+                  </button>
+                ) : (
+                  <div className="bg-black/30 p-3 rounded-lg border border-white/5 space-y-3">
+                    <div className="text-[11px] font-bold text-zinc-400 uppercase">Novo Cardio</div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="block">
+                        <span className="text-[10px] text-zinc-500 block mb-0.5">Nome do Cardio</span>
+                        <input
+                          type="text"
+                          value={newCardioName}
+                          onChange={(e) => setNewCardioName(e.target.value)}
+                          placeholder="Ex: Corrida, Bicicleta"
+                          className="w-full h-8 px-2 text-xs rounded bg-black/40 border border-white/10 text-white outline-none focus:border-cyan"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="text-[10px] text-zinc-500 block mb-0.5">Duração (minutos)</span>
+                        <input
+                          type="number"
+                          value={newCardioDuration}
+                          onChange={(e) => setNewCardioDuration(Number(e.target.value))}
+                          className="w-full h-8 px-2 text-xs rounded bg-black/40 border border-white/10 text-white outline-none focus:border-cyan text-center"
+                        />
+                      </label>
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setShowAddCardio(false)}
+                        className="px-3 h-8 text-xs font-bold rounded border border-white/10 text-zinc-400 hover:text-white cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleAddCardio}
+                        className="px-3 h-8 text-xs font-bold rounded bg-cyan text-black cursor-pointer"
+                      >
+                        Confirmar
+                      </button>
+                    </div>
+                  </div>
+                )
+              )}
             </div>
           )}
 
@@ -1874,78 +2351,114 @@ function EditSheet({
               {details.meds.map((med, idx) => (
                 <div key={idx} className="flex items-center justify-between gap-3 bg-black/20 p-2.5 rounded-lg border border-white/5">
                   <div className="flex-1 min-w-0">
-                    <p className={`text-sm font-bold truncate ${getExerciseTextClass(med.done)}`}>
+                    <p className="text-sm font-bold truncate text-white">
                       {med.name}
                     </p>
                     <p className="text-[11px] text-zinc-400">
                       Dose: {med.dose} {med.time ? `• Horário: ${med.time}` : ""}
                     </p>
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveMed(idx)}
+                    className="h-8 w-8 rounded-lg border border-white/10 text-zinc-400 hover:text-red-400 flex items-center justify-center transition cursor-pointer"
+                    title="Remover medicamento"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+
+              {!showAddMed ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAddMed(true);
+                    setNewMedName("");
+                    setNewMedDose("");
+                    setNewMedTime("");
+                  }}
+                  className="w-full h-9 rounded-lg border border-dashed border-white/10 hover:border-white/20 text-xs font-bold text-zinc-400 hover:text-white flex items-center justify-center gap-1.5 transition cursor-pointer"
+                >
+                  <Plus size={14} /> Adicionar Medicamento
+                </button>
+              ) : (
+                <div className="bg-black/30 p-3 rounded-lg border border-white/5 space-y-3">
+                  <div className="text-[11px] font-bold text-zinc-400 uppercase">Novo Medicamento</div>
+                  <div className="space-y-2">
+                    <label className="block">
+                      <span className="text-[10px] text-zinc-500 block mb-0.5">Nome</span>
+                      <input
+                        type="text"
+                        value={newMedName}
+                        onChange={(e) => setNewMedName(e.target.value)}
+                        placeholder="Ex: Creatina"
+                        className="w-full h-8 px-2 text-xs rounded bg-black/40 border border-white/10 text-white outline-none focus:border-violet-300"
+                      />
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="block">
+                        <span className="text-[10px] text-zinc-500 block mb-0.5">Dose</span>
+                        <input
+                          type="text"
+                          value={newMedDose}
+                          onChange={(e) => setNewMedDose(e.target.value)}
+                          placeholder="Ex: 5g, 1 comprimido"
+                          className="w-full h-8 px-2 text-xs rounded bg-black/40 border border-white/10 text-white outline-none focus:border-violet-300"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="text-[10px] text-zinc-500 block mb-0.5">Horário</span>
+                        <input
+                          type="text"
+                          value={newMedTime}
+                          onChange={(e) => setNewMedTime(e.target.value)}
+                          placeholder="Ex: 08:00"
+                          className="w-full h-8 px-2 text-xs rounded bg-black/40 border border-white/10 text-white outline-none focus:border-violet-300 text-center"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2">
                     <button
                       type="button"
-                      onClick={() => setSubItemDoneStatus(idx, true)}
-                      className={`h-8 px-2.5 rounded-lg border text-xs font-bold flex items-center gap-1 transition cursor-pointer ${
-                        med.done === true
-                          ? "border-violet-300 bg-violet-300 text-black shadow-md shadow-violet-300/10"
-                          : "border-white/10 text-zinc-400 hover:text-white hover:bg-white/5"
-                      }`}
+                      onClick={() => setShowAddMed(false)}
+                      className="px-3 h-8 text-xs font-bold rounded border border-white/10 text-zinc-400 hover:text-white cursor-pointer"
                     >
-                      <Check size={13} />
-                      Tomei
+                      Cancelar
                     </button>
                     <button
                       type="button"
-                      onClick={() => setSubItemDoneStatus(idx, false)}
-                      className={`h-8 px-2.5 rounded-lg border text-xs font-bold flex items-center gap-1 transition cursor-pointer ${
-                        med.done === false
-                          ? "border-red-500 bg-red-500 text-white shadow-md shadow-red-500/10"
-                          : "border-white/10 text-zinc-400 hover:text-white hover:bg-white/5"
-                      }`}
+                      onClick={handleAddMed}
+                      disabled={!newMedName || !newMedDose}
+                      className="px-3 h-8 text-xs font-bold rounded bg-violet-300 text-black cursor-pointer disabled:opacity-50"
                     >
-                      <X size={13} />
-                      Não tomei
+                      Adicionar
                     </button>
                   </div>
                 </div>
-              ))}
+              )}
             </div>
           )}
 
           {/* Bioimpedância */}
           {item.type === "bioimpedancia" && (
             <div className="space-y-3">
-              <p className="text-xs font-bold text-ember uppercase tracking-wider">Resultados de Bioimpedância</p>
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-bold text-ember uppercase tracking-wider">Resultados de Bioimpedância</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = { ...details };
+                    next.bio = {};
+                    setDetails(next);
+                  }}
+                  className="px-2 py-1 text-[10px] font-bold rounded border border-white/10 text-zinc-400 hover:text-red-400 hover:bg-white/5 transition cursor-pointer"
+                >
+                  Limpar Campos
+                </button>
+              </div>
               <div className="bg-black/20 p-3 rounded-lg border border-white/5 space-y-3">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs text-zinc-400">Marcar como realizado</span>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setSubItemDoneStatus(0, true)}
-                      className={`h-8 px-2.5 rounded-lg border text-xs font-bold flex items-center gap-1 transition cursor-pointer ${
-                        details.bio?.done === true
-                          ? "border-ember bg-ember text-black shadow-md shadow-ember/10"
-                          : "border-white/10 text-zinc-400 hover:text-white hover:bg-white/5"
-                      }`}
-                    >
-                      <Check size={13} />
-                      Fiz
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSubItemDoneStatus(0, false)}
-                      className={`h-8 px-2.5 rounded-lg border text-xs font-bold flex items-center gap-1 transition cursor-pointer ${
-                        details.bio?.done === false
-                          ? "border-red-500 bg-red-500 text-white shadow-md shadow-red-500/10"
-                          : "border-white/10 text-zinc-400 hover:text-white hover:bg-white/5"
-                      }`}
-                    >
-                      <X size={13} />
-                      Não fiz
-                    </button>
-                  </div>
-                </div>
                 <div className="grid grid-cols-3 gap-2">
                   <label>
                     <span className="text-[10px] text-zinc-400 mb-1 block">Peso (kg)</span>
@@ -1989,35 +2502,17 @@ function EditSheet({
               {details.bloodExams.map((ex, idx) => (
                 <div key={idx} className="bg-black/20 p-2.5 rounded-lg border border-white/5 space-y-2">
                   <div className="flex items-center justify-between gap-3">
-                    <span className={`text-sm font-bold truncate ${getExerciseTextClass(ex.done)}`}>
+                    <span className="text-sm font-bold truncate text-white">
                       {ex.name}
                     </span>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => setSubItemDoneStatus(idx, true)}
-                        className={`h-8 px-2.5 rounded-lg border text-xs font-bold flex items-center gap-1 transition cursor-pointer ${
-                          ex.done === true
-                            ? "border-rose-300 bg-rose-300 text-black shadow-md shadow-rose-300/10"
-                            : "border-white/10 text-zinc-400 hover:text-white hover:bg-white/5"
-                        }`}
-                      >
-                        <Check size={13} />
-                        Fiz
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSubItemDoneStatus(idx, false)}
-                        className={`h-8 px-2.5 rounded-lg border text-xs font-bold flex items-center gap-1 transition cursor-pointer ${
-                          ex.done === false
-                            ? "border-red-500 bg-red-500 text-white shadow-md shadow-red-500/10"
-                            : "border-white/10 text-zinc-400 hover:text-white hover:bg-white/5"
-                        }`}
-                      >
-                        <X size={13} />
-                        Não fiz
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveExam(idx)}
+                      className="h-8 w-8 rounded-lg border border-white/10 text-zinc-400 hover:text-red-400 flex items-center justify-center transition cursor-pointer"
+                      title="Remover exame"
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </div>
                   <label className="block pl-1">
                     <span className="text-[10px] text-zinc-400 mb-1 block">Resultado / Valor</span>
@@ -2031,6 +2526,50 @@ function EditSheet({
                   </label>
                 </div>
               ))}
+
+              {!showAddExam ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAddExam(true);
+                    setNewExamName("");
+                  }}
+                  className="w-full h-9 rounded-lg border border-dashed border-white/10 hover:border-white/20 text-xs font-bold text-zinc-400 hover:text-white flex items-center justify-center gap-1.5 transition cursor-pointer"
+                >
+                  <Plus size={14} /> Adicionar Exame
+                </button>
+              ) : (
+                <div className="bg-black/30 p-3 rounded-lg border border-white/5 space-y-3">
+                  <div className="text-[11px] font-bold text-zinc-400 uppercase">Novo Exame</div>
+                  <label className="block">
+                    <span className="text-[10px] text-zinc-500 block mb-0.5">Nome do Exame</span>
+                    <input
+                      type="text"
+                      value={newExamName}
+                      onChange={(e) => setNewExamName(e.target.value)}
+                      placeholder="Ex: Colesterol Total"
+                      className="w-full h-8 px-2 text-xs rounded bg-black/40 border border-white/10 text-white outline-none focus:border-rose-300"
+                    />
+                  </label>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowAddExam(false)}
+                      className="px-3 h-8 text-xs font-bold rounded border border-white/10 text-zinc-400 hover:text-white cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleAddExam}
+                      disabled={!newExamName}
+                      className="px-3 h-8 text-xs font-bold rounded bg-rose-300 text-black cursor-pointer disabled:opacity-50"
+                    >
+                      Adicionar
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

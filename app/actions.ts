@@ -4,6 +4,7 @@ import clientPromise from "../lib/db";
 import { ObjectId } from "mongodb";
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
+import { openai } from "../lib/openai";
 
 export type WorkoutExercise = {
   name: string;
@@ -1233,3 +1234,32 @@ export async function getStatisticsDataAction(): Promise<{
 
   return data;
 }
+
+// Estima calorias de dieta ou aeróbico utilizando IA (gpt-4o-mini)
+export async function estimateCaloriesAction(text: string, type: "dieta" | "aerobico"): Promise<number> {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Não autorizado");
+
+  const prompt = type === "dieta"
+    ? `Você é um nutricionista esportivo. Estime a quantidade total de calorias (kcal) para a seguinte descrição de alimento: "${text}".
+Responda APENAS com um número inteiro representando as calorias (kcal), sem texto adicional, unidades ou explicações.`
+    : `Você é um treinador físico. Estime a quantidade total de calorias (kcal) gastas para a seguinte descrição de atividade física/cardio: "${text}".
+Responda APENAS com um número inteiro representando as calorias (kcal), sem texto adicional, unidades ou explicações.`;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.1,
+      max_tokens: 10,
+    });
+
+    const content = response.choices[0]?.message?.content?.trim();
+    const calories = parseInt(content || "0", 10);
+    return isNaN(calories) ? 0 : calories;
+  } catch (err) {
+    console.error("Erro na estimativa de calorias por IA:", err);
+    return 0;
+  }
+}
+
