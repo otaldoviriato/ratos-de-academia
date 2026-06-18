@@ -32,7 +32,7 @@ import {
   Target,
   Upload
 } from "lucide-react";
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition, useRef } from "react";
 import {
   getDailyActivities,
   toggleActivity,
@@ -47,6 +47,7 @@ import {
   getStatisticsDataAction,
   estimateCaloriesAction,
   parseFoodInputWithAIAction,
+  parseCompositionTextWithAIAction,
   getActiveProjectAction,
   createProjectAction,
   deleteProjectAction,
@@ -3725,64 +3726,179 @@ function ProjectCreationForm({
   onCreated: () => void;
   userProfile: any;
 }) {
+  const [messages, setMessages] = useState<Array<{
+    role: "assistant" | "user";
+    content: string;
+  }>>([
+    {
+      role: "assistant",
+      content: "E aí, meu parceiro de ferro! 💪 Bora começar um novo projeto. Você já tem um projeto/objetivo em mente ou gostaria que eu sugerisse um para você com base no seu perfil?"
+    }
+  ]);
+  const [step, setStep] = useState<
+    | "ASK_PROJECT_TYPE"
+    | "OWN_DURATION"
+    | "OWN_METRIC"
+    | "OWN_WEIGHT_TARGET"
+    | "OWN_COMP_TARGET_WEIGHT"
+    | "OWN_COMP_TARGET_FAT"
+    | "OWN_COMP_TARGET_MUSCLE"
+    | "SUGGESTION_METRIC"
+    | "SUGGESTION_WEIGHT_INPUT"
+    | "SUGGESTION_WEIGHT_CONFIRM"
+    | "SUGGESTION_COMP_METHOD"
+    | "SUGGESTION_COMP_INPUT_TEXT"
+    | "SUGGESTION_COMP_UPLOAD"
+    | "SUGGESTION_COMP_MANUAL_WEIGHT"
+    | "SUGGESTION_COMP_MANUAL_FAT"
+    | "SUGGESTION_COMP_MANUAL_MUSCLE"
+    | "SUGGESTION_COMP_CONFIRM"
+    | "ASK_FREQUENCY"
+    | "ASK_TITLE"
+    | "CREATING"
+  >("ASK_PROJECT_TYPE");
+
+  // Dados coletados
   const [title, setTitle] = useState("");
   const [goalType, setGoalType] = useState<ProjectGoalType>("emagrecimento");
   const [durationDays, setDurationDays] = useState(90);
   const [metricType, setMetricType] = useState<"weight" | "composition">("weight");
   const [frequency, setFrequency] = useState<ProjectMeasurementFrequency>("weekly");
 
-  // Métricas Iniciais (sugerir do perfil)
-  const [initWeight, setInitWeight] = useState(userProfile?.biometrics?.weight?.toString() || "");
-  const [initFat, setInitFat] = useState(userProfile?.biometrics?.fatPct?.toString() || "");
-  const [initMuscle, setInitMuscle] = useState(userProfile?.biometrics?.muscleMass?.toString() || "");
+  const [initWeight, setInitWeight] = useState(() => Number(userProfile?.biometrics?.weight || 70));
+  const [initFat, setInitFat] = useState(() => Number(userProfile?.biometrics?.fatPct || 18));
+  const [initMuscle, setInitMuscle] = useState(() => Number(userProfile?.biometrics?.muscleMass || 35));
 
-  // Métricas Alvo
-  const [targetWeight, setTargetWeight] = useState("");
-  const [targetFat, setTargetFat] = useState("");
-  const [targetMuscle, setTargetMuscle] = useState("");
+  const [targetWeight, setTargetWeight] = useState<number>(70);
+  const [targetFat, setTargetFat] = useState<number | undefined>(undefined);
+  const [targetMuscle, setTargetMuscle] = useState<number | undefined>(undefined);
 
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  // Estados locais
+  const [textInput, setTextInput] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError("");
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isTyping]);
 
-    if (!title.trim()) {
-      setError("Por favor, dê um título ao seu projeto.");
-      return;
+  const addAssistantMessage = (content: string, delayMs = 600) => {
+    setIsTyping(true);
+    setTimeout(() => {
+      setMessages(prev => [...prev, { role: "assistant", content }]);
+      setIsTyping(false);
+    }, delayMs);
+  };
+
+  const handleUserResponse = (userText: string, nextAction: () => void) => {
+    setMessages(prev => [...prev, { role: "user", content: userText }]);
+    setIsTyping(true);
+    setTimeout(() => {
+      setIsTyping(false);
+      nextAction();
+    }, 400);
+  };
+
+  const getCompositionSuggestion = (w: number, f: number, m: number) => {
+    const isMale = userProfile?.gender === "masculino";
+    const fatThreshold = isMale ? 18 : 25;
+
+    if (f >= fatThreshold) {
+      const targetW = w - (w * 0.08); // -8% peso
+      const targetF = f - 5; // -5% gordura
+      const targetM = m; // mantém
+      return {
+        goalType: "emagrecimento" as ProjectGoalType,
+        targetWeight: Number(targetW.toFixed(1)),
+        targetFat: Number(targetF.toFixed(1)),
+        targetMuscle: Number(targetM.toFixed(1)),
+        text: `Seus dados indicam percentual de gordura de ${f}%. Minha sugestão é um projeto de **Emagrecimento** de 90 dias focado na definição. Metas propostas: Peso alvo de **${targetW.toFixed(1)}kg** (reduzir ~8%), Gordura alvo de **${targetF.toFixed(1)}%** e Massa Muscular alvo de **${targetM.toFixed(1)}kg** (manter musculatura). O que acha?`
+      };
+    } else {
+      const targetW = w + (w * 0.04); // +4% peso
+      const targetF = f; // mantém
+      const targetM = m + 2.5; // ganha
+      return {
+        goalType: "ganho_massa" as ProjectGoalType,
+        targetWeight: Number(targetW.toFixed(1)),
+        targetFat: Number(targetF.toFixed(1)),
+        targetMuscle: Number(targetM.toFixed(1)),
+        text: `Sua composição atual está ótima para construir fibras! Minha sugestão é um projeto de **Ganho de Massa** de 90 dias focado em hipertrofia. Metas propostas: Peso de **${targetW.toFixed(1)}kg** (+4% peso), Gordura de **${targetF.toFixed(1)}%** e Massa Muscular de **${targetM.toFixed(1)}kg** (ganho de +2.5kg de músculo). Topa?`
+      };
     }
+  };
 
-    const initialW = parseFloat(initWeight);
-    const targetW = parseFloat(targetWeight);
+  const handleBioUploadForSuggestion = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-    if (isNaN(initialW) || initialW <= 0) {
-      setError("Por favor, insira um peso inicial válido.");
-      return;
+    setIsUploading(true);
+    setUploadError("");
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const response = await fetch("/api/onboarding/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      const resData = await response.json();
+      if (!response.ok) {
+        throw new Error(resData.error || "Erro ao analisar bioimpedância");
+      }
+
+      const extracted = resData.data;
+      const w = extracted.weight || initWeight;
+      const f = extracted.fatPct || initFat;
+      const m = extracted.muscleMass || initMuscle;
+
+      setInitWeight(w);
+      setInitFat(f);
+      setInitMuscle(m);
+
+      setMessages(prev => [...prev, { role: "user", content: "📄 Enviei meu arquivo de bioimpedância." }]);
+      
+      const suggestion = getCompositionSuggestion(w, f, m);
+      setGoalType(suggestion.goalType);
+      setMetricType("composition");
+      setTargetWeight(suggestion.targetWeight);
+      setTargetFat(suggestion.targetFat);
+      setTargetMuscle(suggestion.targetMuscle);
+
+      setStep("SUGGESTION_COMP_CONFIRM");
+      addAssistantMessage(suggestion.text);
+    } catch (err: any) {
+      setUploadError(err.message || "Erro no processamento do arquivo.");
+    } finally {
+      setIsUploading(false);
     }
-    if (isNaN(targetW) || targetW <= 0) {
-      setError("Por favor, insira um peso alvo válido.");
-      return;
-    }
+  };
 
-    setLoading(true);
+  const handleCreateProject = async (finalTitle: string) => {
+    setStep("CREATING");
     try {
       const initialMetrics = {
-        weight: initialW,
-        fatPct: metricType === "composition" && initFat ? parseFloat(initFat) : undefined,
-        muscleMass: metricType === "composition" && initMuscle ? parseFloat(initMuscle) : undefined
+        weight: Number(initWeight),
+        fatPct: metricType === "composition" ? Number(initFat) : undefined,
+        muscleMass: metricType === "composition" ? Number(initMuscle) : undefined
       };
 
       const targetMetrics = {
-        weight: targetW,
-        fatPct: metricType === "composition" && targetFat ? parseFloat(targetFat) : undefined,
-        muscleMass: metricType === "composition" && targetMuscle ? parseFloat(targetMuscle) : undefined
+        weight: Number(targetWeight),
+        fatPct: metricType === "composition" ? Number(targetFat) : undefined,
+        muscleMass: metricType === "composition" ? Number(targetMuscle) : undefined
       };
 
       await createProjectAction({
-        title,
+        title: finalTitle,
         goalType,
-        durationDays: Number(durationDays),
+        durationDays,
         measurementFrequency: frequency,
         metricType,
         initialMetrics,
@@ -3791,199 +3907,609 @@ function ProjectCreationForm({
 
       onCreated();
     } catch (err: any) {
-      setError(err.message || "Erro ao criar projeto.");
-    } finally {
-      setLoading(false);
+      addAssistantMessage(`Opa, deu ruim ao criar o projeto: ${err.message || "Erro desconhecido"}. Vamos tentar digitar o nome de novo?`);
+      setStep("ASK_TITLE");
     }
   };
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-y-auto pr-1 pb-4 animate-[fadeIn_0.2s_ease-out]">
-      <div className="bg-white/[0.02] border border-white/5 p-4 rounded-2xl mb-4 text-center">
-        <Target className="w-10 h-10 text-acid mx-auto mb-2" />
-        <h3 className="text-sm font-black text-white">Crie o seu Projeto de Objetivos</h3>
-        <p className="text-xs text-zinc-500 mt-1">
-          Defina uma meta física, selecione a frequência de medição e visualize sua jornada com projeções ideais.
-        </p>
+    <div className="flex-1 flex flex-col min-h-0 bg-black/40 border border-white/5 rounded-3xl overflow-hidden h-[75vh] md:h-[65vh]">
+      {/* Header */}
+      <div className="bg-white/[0.02] border-b border-white/5 p-4 flex items-center gap-3 shrink-0">
+        <div className="flex items-center justify-center w-9 h-9 rounded-full overflow-hidden border border-acid/20 bg-black">
+          <img 
+            src="/mascot.png" 
+            alt="Avatar Ratão" 
+            className="w-full h-full object-cover scale-x-[-1] scale-110" 
+          />
+        </div>
+        <div>
+          <h3 className="text-xs font-black text-white uppercase tracking-wider">Ratão &bull; Criação de Projeto</h3>
+          <p className="text-[9px] text-zinc-500 font-bold">Defina suas metas e comece a treinar</p>
+        </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
-        {error && (
-          <div className="bg-red-500/10 border border-red-500/20 text-red-200 text-xs p-3 rounded-lg font-bold">
-            {error}
+      {/* Mensagens do chat */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 mobile-scroll min-h-0 scrollbar-thin">
+        {messages.map((msg, idx) => {
+          const isAi = msg.role === "assistant";
+          return (
+            <div key={idx} className={`flex items-start gap-3 ${!isAi ? "flex-row-reverse" : ""}`}>
+              {isAi && (
+                <div className="flex items-center justify-center w-8 h-8 rounded-full overflow-hidden border border-acid/20 bg-black shrink-0">
+                  <img 
+                    src="/mascot.png" 
+                    alt="Avatar Ratão" 
+                    className="w-full h-full object-cover scale-x-[-1] scale-110" 
+                  />
+                </div>
+              )}
+              <div
+                className={`max-w-[75%] px-4 py-3 rounded-2xl text-[11px] leading-relaxed shadow-sm font-bold ${
+                  isAi
+                    ? "bg-zinc-900/95 text-zinc-200 rounded-tl-none border border-white/5"
+                    : "bg-acid text-black rounded-tr-none"
+                }`}
+              >
+                {msg.content}
+              </div>
+            </div>
+          );
+        })}
+
+        {isTyping && (
+          <div className="flex items-start gap-3">
+            <div className="flex items-center justify-center w-8 h-8 rounded-full overflow-hidden border border-acid/20 bg-black shrink-0">
+              <img 
+                src="/mascot.png" 
+                alt="Avatar Ratão" 
+                className="w-full h-full object-cover scale-x-[-1] scale-110" 
+              />
+            </div>
+            <div className="px-4 py-3 rounded-2xl bg-zinc-900/95 border border-white/5 rounded-tl-none flex items-center gap-1 h-9 min-w-[50px] justify-center">
+              <span className="w-1.5 h-1.5 rounded-full bg-acid animate-bounce"></span>
+              <span className="w-1.5 h-1.5 rounded-full bg-acid animate-bounce [animation-delay:150ms]"></span>
+              <span className="w-1.5 h-1.5 rounded-full bg-acid animate-bounce [animation-delay:300ms]"></span>
+            </div>
+          </div>
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Área de Ações */}
+      <div className="shrink-0 border-t border-white/5 bg-black/20 p-4">
+        {uploadError && (
+          <div className="mb-3 text-[10px] text-red-400 bg-red-950/20 border border-red-900/30 p-2 rounded-lg font-bold">
+            ⚠️ {uploadError}
           </div>
         )}
 
-        <div className="bg-black/40 border border-white/5 p-4 rounded-2xl space-y-3">
-          <label className="block">
-            <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold block mb-1">Título do Projeto</span>
+        {/* 1. Escolha Inicial do Projeto */}
+        {step === "ASK_PROJECT_TYPE" && !isTyping && (
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => {
+                handleUserResponse("Tenho um objetivo em mente", () => {
+                  setStep("OWN_DURATION");
+                  addAssistantMessage("Excelente! Foco total. Quantos dias vai durar a sua jornada? (Geralmente fazemos 30, 60, 90, 120 ou 180 dias)");
+                });
+              }}
+              className="h-10 text-[10px] font-black rounded-xl border border-white/10 text-zinc-300 hover:border-acid hover:text-white cursor-pointer bg-white/[0.02] transition"
+            >
+              Tenho um objetivo
+            </button>
+            <button
+              onClick={() => {
+                handleUserResponse("Gostaria de uma sugestão", () => {
+                  setStep("SUGGESTION_METRIC");
+                  addAssistantMessage("Fechado! Vou analisar seu perfil e propor a melhor estratégia. Para começar, me diga: como você prefere medir e acompanhar o projeto? Apenas pelo Peso ou pela Composição Corporal (com gordura e massa magra)?");
+                });
+              }}
+              className="h-10 text-[10px] font-black rounded-xl border border-acid/20 text-acid hover:bg-acid/5 cursor-pointer bg-black/20 transition"
+            >
+              Sugira um projeto
+            </button>
+          </div>
+        )}
+
+        {/* 2. Duração do Projeto Próprio */}
+        {step === "OWN_DURATION" && !isTyping && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-5 gap-1.5">
+              {[30, 60, 90, 120, 180].map((d) => (
+                <button
+                  key={d}
+                  onClick={() => {
+                    setDurationDays(d);
+                    handleUserResponse(`${d} Dias`, () => {
+                      setStep("OWN_METRIC");
+                      addAssistantMessage(`Beleza, projeto de ${d} dias! E qual vai ser o foco de acompanhamento? Apenas pelo Peso ou pela Composição Corporal (gordura/massa magra)?`);
+                    });
+                  }}
+                  className="h-9 text-[10px] font-black rounded-lg border border-white/10 text-zinc-400 hover:text-white cursor-pointer bg-white/[0.01]"
+                >
+                  {d}d
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 3. Métrica do Projeto Próprio */}
+        {step === "OWN_METRIC" && !isTyping && (
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => {
+                setMetricType("weight");
+                handleUserResponse("Apenas Peso", () => {
+                  setStep("OWN_WEIGHT_TARGET");
+                  addAssistantMessage(`Entendido. Atualmente seu peso no perfil é de ${initWeight}kg. Qual é o seu peso alvo (kg) para atingir ao final dos ${durationDays} dias?`);
+                });
+              }}
+              className="h-10 text-[10px] font-black rounded-xl border border-white/10 text-zinc-300 hover:border-acid hover:text-white cursor-pointer bg-white/[0.02]"
+            >
+              Apenas Peso
+            </button>
+            <button
+              onClick={() => {
+                setMetricType("composition");
+                handleUserResponse("Composição Corporal", () => {
+                  setStep("OWN_COMP_TARGET_WEIGHT");
+                  addAssistantMessage(`Bora de bioimpedância! Vamos definir as metas. Qual é o seu peso alvo (kg) para atingir ao final dos ${durationDays} dias?`);
+                });
+              }}
+              className="h-10 text-[10px] font-black rounded-xl border border-white/10 text-zinc-300 hover:border-acid hover:text-white cursor-pointer bg-white/[0.02]"
+            >
+              Composição Corporal
+            </button>
+          </div>
+        )}
+
+        {/* Inputs Numéricos (OWN_WEIGHT_TARGET, OWN_COMP_TARGET_WEIGHT, OWN_COMP_TARGET_FAT, OWN_COMP_TARGET_MUSCLE) */}
+        {["OWN_WEIGHT_TARGET", "OWN_COMP_TARGET_WEIGHT", "OWN_COMP_TARGET_FAT", "OWN_COMP_TARGET_MUSCLE"].includes(step) && !isTyping && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const val = parseFloat(textInput);
+              if (isNaN(val) || val <= 0) return;
+              setTextInput("");
+
+              if (step === "OWN_WEIGHT_TARGET") {
+                setTargetWeight(val);
+                handleUserResponse(`${val} kg`, () => {
+                  setStep("ASK_FREQUENCY");
+                  addAssistantMessage("Peso alvo definido! E com que frequência você quer registrar as medições no seu planejamento diário?");
+                });
+              } else if (step === "OWN_COMP_TARGET_WEIGHT") {
+                setTargetWeight(val);
+                handleUserResponse(`${val} kg`, () => {
+                  setStep("OWN_COMP_TARGET_FAT");
+                  addAssistantMessage("Peso alvo anotado. E qual é o seu percentual de gordura (%) alvo?");
+                });
+              } else if (step === "OWN_COMP_TARGET_FAT") {
+                setTargetFat(val);
+                handleUserResponse(`${val}% de gordura`, () => {
+                  setStep("OWN_COMP_TARGET_MUSCLE");
+                  addAssistantMessage("Gordura alvo anotada. E qual é a sua massa muscular (kg) alvo?");
+                });
+              } else if (step === "OWN_COMP_TARGET_MUSCLE") {
+                setTargetMuscle(val);
+                handleUserResponse(`${val} kg de massa magra`, () => {
+                  setStep("ASK_FREQUENCY");
+                  addAssistantMessage("Metas de composição corporal definidas! E com que frequência você quer registrar as medições no seu planejamento diário?");
+                });
+              }
+            }}
+            className="flex gap-2"
+          >
+            <input
+              type="number"
+              step="0.1"
+              required
+              value={textInput}
+              onChange={(e) => setTextInput(e.target.value)}
+              placeholder="Digite o valor..."
+              className="flex-1 h-10 px-3 text-xs rounded-xl bg-black/60 border border-white/10 text-white outline-none focus:border-acid"
+            />
+            <button
+              type="submit"
+              className="px-4 h-10 rounded-xl bg-acid text-black font-black text-xs cursor-pointer"
+            >
+              Enviar
+            </button>
+          </form>
+        )}
+
+        {/* 4. Métrica de Sugestão */}
+        {step === "SUGGESTION_METRIC" && !isTyping && (
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => {
+                setMetricType("weight");
+                handleUserResponse("Apenas Peso", () => {
+                  setStep("SUGGESTION_WEIGHT_INPUT");
+                  addAssistantMessage(`Excelente. Confirme para mim o seu peso atual (kg) para eu calcular as projeções ideais de peso:`);
+                });
+              }}
+              className="h-10 text-[10px] font-black rounded-xl border border-white/10 text-zinc-300 hover:border-acid hover:text-white cursor-pointer bg-white/[0.02]"
+            >
+              Apenas Peso
+            </button>
+            <button
+              onClick={() => {
+                setMetricType("composition");
+                handleUserResponse("Composição Corporal", () => {
+                  setStep("SUGGESTION_COMP_METHOD");
+                  addAssistantMessage("Bora de bioimpedância! Como você prefere me passar seus dados de bioimpedância atuais?");
+                });
+              }}
+              className="h-10 text-[10px] font-black rounded-xl border border-white/10 text-zinc-300 hover:border-acid hover:text-white cursor-pointer bg-white/[0.02]"
+            >
+              Composição Corporal
+            </button>
+          </div>
+        )}
+
+        {/* 5. Input de Peso atual para sugestão */}
+        {step === "SUGGESTION_WEIGHT_INPUT" && !isTyping && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const val = parseFloat(textInput);
+              if (isNaN(val) || val <= 0) return;
+              setTextInput("");
+
+              setInitWeight(val);
+              const heightCm = userProfile?.biometrics?.height || 175;
+              const heightM = heightCm / 100;
+              const imc = val / (heightM * heightM);
+              let targetW = val;
+              let goal: ProjectGoalType = "emagrecimento";
+              let suggestionText = "";
+
+              if (imc >= 25) {
+                targetW = val - (val * 0.08); // -8%
+                goal = "emagrecimento";
+                suggestionText = `Seu IMC está em ${imc.toFixed(1)} (indica sobrepeso/obesidade). Minha sugestão maromba é um projeto de **Emagrecimento** de 90 dias com o objetivo de reduzir ~8% do seu peso, chegando a **${targetW.toFixed(1)}kg**. O que você acha?`;
+              } else if (imc < 18.5) {
+                targetW = val + (val * 0.05); // +5%
+                goal = "ganho_massa";
+                suggestionText = `Seu IMC está em ${imc.toFixed(1)} (baixo peso). Sugiro um projeto focado em **Ganho de Massa** de 90 dias, buscando aumentar seu peso em ~5%, atingindo **${targetW.toFixed(1)}kg**. O que acha?`;
+              } else {
+                targetW = val + (val * 0.02); // +2% recomposição
+                goal = "manutencao";
+                suggestionText = `Seu IMC está em ${imc.toFixed(1)} (excelente peso!). Sugiro um projeto de **Definição / Manutenção** de 90 dias para recomposição corporal e melhora da qualidade muscular, visando **${targetW.toFixed(1)}kg**. Topa?`;
+              }
+
+              setGoalType(goal);
+              setTargetWeight(Number(targetW.toFixed(1)));
+              
+              handleUserResponse(`${val} kg`, () => {
+                setStep("SUGGESTION_WEIGHT_CONFIRM");
+                addAssistantMessage(suggestionText);
+              });
+            }}
+            className="flex gap-2"
+          >
+            <input
+              type="number"
+              step="0.1"
+              required
+              value={textInput}
+              onChange={(e) => setTextInput(e.target.value)}
+              placeholder={`Confirmar peso atual (Perfil: ${initWeight}kg)...`}
+              className="flex-1 h-10 px-3 text-xs rounded-xl bg-black/60 border border-white/10 text-white outline-none focus:border-acid"
+            />
+            <button
+              type="submit"
+              className="px-4 h-10 rounded-xl bg-acid text-black font-black text-xs cursor-pointer"
+            >
+              Confirmar
+            </button>
+          </form>
+        )}
+
+        {/* Confirmar sugestões (SUGGESTION_WEIGHT_CONFIRM e SUGGESTION_COMP_CONFIRM) */}
+        {["SUGGESTION_WEIGHT_CONFIRM", "SUGGESTION_COMP_CONFIRM"].includes(step) && !isTyping && (
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => {
+                handleUserResponse("Aceito a sugestão", () => {
+                  setStep("ASK_FREQUENCY");
+                  addAssistantMessage("Excelente escolha! Rumo à evolução! Agora me diga: com que frequência você quer registrar as medições no seu planejamento diário?");
+                });
+              }}
+              className="h-10 text-[10px] font-black rounded-xl bg-acid text-black cursor-pointer hover:scale-[1.01] transition"
+            >
+              Aceitar Sugestão
+            </button>
+            <button
+              onClick={() => {
+                handleUserResponse("Quero ajustar", () => {
+                  if (metricType === "composition") {
+                    setStep("OWN_COMP_TARGET_WEIGHT");
+                    addAssistantMessage(`Sem problemas! Qual é o seu peso alvo (kg) ideal?`);
+                  } else {
+                    setStep("OWN_WEIGHT_TARGET");
+                    addAssistantMessage(`Sem problemas! Qual é o seu peso alvo (kg) para atingir ao final dos ${durationDays} dias?`);
+                  }
+                });
+              }}
+              className="h-10 text-[10px] font-black rounded-xl border border-white/10 text-zinc-300 hover:border-acid hover:text-white cursor-pointer bg-white/[0.02] transition"
+            >
+              Quero Ajustar
+            </button>
+          </div>
+        )}
+
+        {/* 6. Método de Input para Sugestão de Composição */}
+        {step === "SUGGESTION_COMP_METHOD" && !isTyping && (
+          <div className="grid grid-cols-3 gap-1.5">
+            <button
+              onClick={() => {
+                handleUserResponse("Digitar Manualmente", () => {
+                  setStep("SUGGESTION_COMP_MANUAL_WEIGHT");
+                  addAssistantMessage("Ok! Qual é o seu peso atual (kg)?");
+                });
+              }}
+              className="h-10 text-[9px] font-black rounded-xl border border-white/10 text-zinc-300 hover:border-acid hover:text-white cursor-pointer bg-white/[0.02] transition"
+            >
+              Digitar Manualmente
+            </button>
+            <button
+              onClick={() => {
+                handleUserResponse("Escrever no chat", () => {
+                  setStep("SUGGESTION_COMP_INPUT_TEXT");
+                  addAssistantMessage("Manda ver! Descreva suas medidas atuais em texto livre (ex: 'peso 80kg, gordura 20%, massa muscular 35kg'):");
+                });
+              }}
+              className="h-10 text-[9px] font-black rounded-xl border border-white/10 text-zinc-300 hover:border-acid hover:text-white cursor-pointer bg-white/[0.02] transition"
+            >
+              Escrever Texto
+            </button>
+            <button
+              onClick={() => {
+                handleUserResponse("Fazer upload do exame", () => {
+                  setStep("SUGGESTION_COMP_UPLOAD");
+                  addAssistantMessage("Legal! Faça o upload da imagem do seu exame de bioimpedância (JPG, PNG ou WEBP) para eu extrair os dados:");
+                });
+              }}
+              className="h-10 text-[9px] font-black rounded-xl border border-acid/20 text-acid bg-black/20 hover:bg-acid/5 cursor-pointer transition"
+            >
+              Upload de Exame
+            </button>
+          </div>
+        )}
+
+        {/* Inputs manuais de composição para sugestão */}
+        {["SUGGESTION_COMP_MANUAL_WEIGHT", "SUGGESTION_COMP_MANUAL_FAT", "SUGGESTION_COMP_MANUAL_MUSCLE"].includes(step) && !isTyping && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const val = parseFloat(textInput);
+              if (isNaN(val) || val <= 0) return;
+              setTextInput("");
+
+              if (step === "SUGGESTION_COMP_MANUAL_WEIGHT") {
+                setInitWeight(val);
+                handleUserResponse(`${val} kg`, () => {
+                  setStep("SUGGESTION_COMP_MANUAL_FAT");
+                  addAssistantMessage("Peso atual anotado. Qual o seu percentual de gordura (%) atual?");
+                });
+              } else if (step === "SUGGESTION_COMP_MANUAL_FAT") {
+                setInitFat(val);
+                handleUserResponse(`${val}% de gordura`, () => {
+                  setStep("SUGGESTION_COMP_MANUAL_MUSCLE");
+                  addAssistantMessage("Gordura atual anotada. Qual a sua massa muscular (kg) atual?");
+                });
+              } else if (step === "SUGGESTION_COMP_MANUAL_MUSCLE") {
+                setInitMuscle(val);
+                handleUserResponse(`${val} kg de massa magra`, () => {
+                  const suggestion = getCompositionSuggestion(initWeight, initFat, val);
+                  setGoalType(suggestion.goalType);
+                  setTargetWeight(suggestion.targetWeight);
+                  setTargetFat(suggestion.targetFat);
+                  setTargetMuscle(suggestion.targetMuscle);
+                  setStep("SUGGESTION_COMP_CONFIRM");
+                  addAssistantMessage(suggestion.text);
+                });
+              }
+            }}
+            className="flex gap-2"
+          >
+            <input
+              type="number"
+              step="0.1"
+              required
+              value={textInput}
+              onChange={(e) => setTextInput(e.target.value)}
+              placeholder="Digite o valor..."
+              className="flex-1 h-10 px-3 text-xs rounded-xl bg-black/60 border border-white/10 text-white outline-none focus:border-acid"
+            />
+            <button
+              type="submit"
+              className="px-4 h-10 rounded-xl bg-acid text-black font-black text-xs cursor-pointer"
+            >
+              Confirmar
+            </button>
+          </form>
+        )}
+
+        {/* Input de texto livre para extração com IA */}
+        {step === "SUGGESTION_COMP_INPUT_TEXT" && !isTyping && (
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (!textInput.trim()) return;
+              const text = textInput;
+              setTextInput("");
+
+              setMessages(prev => [...prev, { role: "user", content: text }]);
+              setIsTyping(true);
+
+              try {
+                const extracted = await parseCompositionTextWithAIAction(text);
+                const w = extracted.weight || initWeight;
+                const f = extracted.fatPct || initFat;
+                const m = extracted.muscleMass || initMuscle;
+
+                setInitWeight(w);
+                setInitFat(f);
+                setInitMuscle(m);
+
+                const suggestion = getCompositionSuggestion(w, f, m);
+                setGoalType(suggestion.goalType);
+                setTargetWeight(suggestion.targetWeight);
+                setTargetFat(suggestion.targetFat);
+                setTargetMuscle(suggestion.targetMuscle);
+
+                setStep("SUGGESTION_COMP_CONFIRM");
+                setIsTyping(false);
+                setMessages(prev => [...prev, { role: "assistant", content: suggestion.text }]);
+              } catch (err) {
+                setIsTyping(false);
+                addAssistantMessage("Opa! Não consegui identificar os dados no seu texto. Poderia reescrever com mais clareza ou digitar manualmente?");
+              }
+            }}
+            className="flex gap-2"
+          >
             <input
               type="text"
               required
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Ex: Projeto Verão Trincado, Definição 90 dias"
-              className="w-full h-10 px-3 text-xs rounded-xl bg-black/60 border border-white/10 text-white outline-none focus:border-acid"
+              value={textInput}
+              onChange={(e) => setTextInput(e.target.value)}
+              placeholder="Digite aqui (ex: peso 85, gordura 19%)..."
+              className="flex-1 h-10 px-3 text-xs rounded-xl bg-black/60 border border-white/10 text-white outline-none focus:border-acid"
             />
-          </label>
+            <button
+              type="submit"
+              className="px-4 h-10 rounded-xl bg-acid text-black font-black text-xs cursor-pointer"
+            >
+              Extrair com IA
+            </button>
+          </form>
+        )}
 
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block">
-              <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold block mb-1">Objetivo</span>
-              <select
-                value={goalType}
-                onChange={(e: any) => setGoalType(e.target.value)}
-                className="w-full h-10 px-3 text-xs rounded-xl bg-black/60 border border-white/10 text-white outline-none focus:border-acid"
-              >
-                <option value="emagrecimento">Emagrecimento</option>
-                <option value="ganho_massa">Ganho de Massa</option>
-                <option value="manutencao">Definição / Manutenção</option>
-                <option value="outros">Outros</option>
-              </select>
-            </label>
-
-            <label className="block">
-              <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold block mb-1">Duração (Dias)</span>
-              <select
-                value={durationDays}
-                onChange={(e) => setDurationDays(Number(e.target.value))}
-                className="w-full h-10 px-3 text-xs rounded-xl bg-black/60 border border-white/10 text-white outline-none focus:border-acid"
-              >
-                <option value={30}>30 Dias (1 Mês)</option>
-                <option value={60}>60 Dias (2 Meses)</option>
-                <option value={90}>90 Dias (3 Meses)</option>
-                <option value={120}>120 Dias (4 Meses)</option>
-                <option value={180}>180 Dias (6 Meses)</option>
-              </select>
-            </label>
+        {/* Botão de Upload de Exame para Sugestão */}
+        {step === "SUGGESTION_COMP_UPLOAD" && !isTyping && (
+          <div className="flex flex-col items-center justify-center p-3 border border-dashed border-white/10 rounded-2xl bg-black/10">
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleBioUploadForSuggestion}
+              className="hidden"
+              accept="image/*"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isUploading}
+              className={`h-11 px-5 text-xs font-black rounded-xl flex items-center gap-2 transition cursor-pointer ${
+                isUploading 
+                  ? "bg-acid/15 border border-acid/20 text-acid animate-pulse" 
+                  : "bg-acid text-black hover:scale-[1.01]"
+              }`}
+            >
+              {isUploading ? <RotateCw className="w-4 h-4 animate-spin" /> : <Upload size={14} />}
+              {isUploading ? "Analisando com IA..." : "Selecionar Foto do Exame"}
+            </button>
+            <p className="text-[9px] text-zinc-500 mt-2">Envie imagem do InBody ou similar. O Ratos de Academia lerá os dados.</p>
           </div>
+        )}
 
-          <div className="grid grid-cols-2 gap-3">
-            <label className="block">
-              <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold block mb-1">Foco de Acompanhamento</span>
-              <select
-                value={metricType}
-                onChange={(e: any) => setMetricType(e.target.value)}
-                className="w-full h-10 px-3 text-xs rounded-xl bg-black/60 border border-white/10 text-white outline-none focus:border-acid"
-              >
-                <option value="weight">Apenas Peso (kg)</option>
-                <option value="composition">Composição Corporal</option>
-              </select>
-            </label>
-
-            <label className="block">
-              <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold block mb-1">Frequência de Medição</span>
-              <select
-                value={frequency}
-                onChange={(e: any) => setFrequency(e.target.value)}
-                className="w-full h-10 px-3 text-xs rounded-xl bg-black/60 border border-white/10 text-white outline-none focus:border-acid"
-              >
-                <option value="daily">Diariamente</option>
-                <option value="weekly">Semanalmente</option>
-                <option value="fortnightly">A cada 15 dias</option>
-                <option value="monthly">A cada mês</option>
-              </select>
-            </label>
+        {/* 7. Frequência de Medição (Comum) */}
+        {step === "ASK_FREQUENCY" && !isTyping && (
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => {
+                setFrequency("weekly");
+                handleUserResponse("Semanalmente", () => {
+                  setStep("ASK_TITLE");
+                  addAssistantMessage("Excelente. Acompanhamento semanal! Para finalizar, dê um título bem motivador para o seu projeto:");
+                });
+              }}
+              className="h-10 text-[10px] font-black rounded-xl border border-white/10 text-zinc-300 hover:border-acid hover:text-white cursor-pointer bg-white/[0.02] transition"
+            >
+              Semanalmente
+            </button>
+            <button
+              onClick={() => {
+                setFrequency("daily");
+                handleUserResponse("Diariamente", () => {
+                  setStep("ASK_TITLE");
+                  addAssistantMessage("Caramba, diariamente! Foco de aço. Para finalizar, dê um título bem motivador para o seu projeto:");
+                });
+              }}
+              className="h-10 text-[10px] font-black rounded-xl border border-white/10 text-zinc-300 hover:border-acid hover:text-white cursor-pointer bg-white/[0.02] transition"
+            >
+              Diariamente
+            </button>
+            <button
+              onClick={() => {
+                setFrequency("fortnightly");
+                handleUserResponse("A cada 15 dias", () => {
+                  setStep("ASK_TITLE");
+                  addAssistantMessage("Boa, a cada quinzena. Para finalizar, dê um título bem motivador para o seu projeto:");
+                });
+              }}
+              className="h-10 text-[10px] font-black rounded-xl border border-white/10 text-zinc-300 hover:border-acid hover:text-white cursor-pointer bg-white/[0.02] transition"
+            >
+              A cada 15 dias
+            </button>
+            <button
+              onClick={() => {
+                setFrequency("monthly");
+                handleUserResponse("Mensalmente", () => {
+                  setStep("ASK_TITLE");
+                  addAssistantMessage("Fechado, uma pesagem ao mês. Para finalizar, dê um título bem motivador para o seu projeto:");
+                });
+              }}
+              className="h-10 text-[10px] font-black rounded-xl border border-white/10 text-zinc-300 hover:border-acid hover:text-white cursor-pointer bg-white/[0.02] transition"
+            >
+              Mensalmente
+            </button>
           </div>
-        </div>
+        )}
 
-        {/* Métricas Iniciais vs. Alvo */}
-        <div className="bg-black/40 border border-white/5 p-4 rounded-2xl space-y-4">
-          <h4 className="text-[10px] text-zinc-400 uppercase tracking-wider font-black border-b border-white/5 pb-2">Métricas e Metas</h4>
+        {/* 8. Título do Projeto */}
+        {step === "ASK_TITLE" && !isTyping && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!textInput.trim()) return;
+              const text = textInput;
+              setTextInput("");
+              setTitle(text);
+              handleUserResponse(text, () => {
+                handleCreateProject(text);
+              });
+            }}
+            className="flex gap-2"
+          >
+            <input
+              type="text"
+              required
+              value={textInput}
+              onChange={(e) => setTextInput(e.target.value)}
+              placeholder="Ex: Projeto Verão Trincado..."
+              className="flex-1 h-10 px-3 text-xs rounded-xl bg-black/60 border border-white/10 text-white outline-none focus:border-acid"
+            />
+            <button
+              type="submit"
+              className="px-4 h-10 rounded-xl bg-acid text-black font-black text-xs cursor-pointer"
+            >
+              Criar Projeto 🚀
+            </button>
+          </form>
+        )}
 
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <label className="block">
-                <span className="text-[10px] text-zinc-500 font-bold block mb-1">Peso Inicial (kg)</span>
-                <input
-                  type="number"
-                  step="0.1"
-                  required
-                  value={initWeight}
-                  onChange={(e) => setInitWeight(e.target.value)}
-                  placeholder="Ex: 85.5"
-                  className="w-full h-10 px-3 text-xs rounded-xl bg-black/60 border border-white/10 text-white outline-none focus:border-acid"
-                />
-              </label>
-
-              <label className="block">
-                <span className="text-[10px] text-acid font-bold block mb-1">Peso Alvo (kg)</span>
-                <input
-                  type="number"
-                  step="0.1"
-                  required
-                  value={targetWeight}
-                  onChange={(e) => setTargetWeight(e.target.value)}
-                  placeholder="Ex: 78.0"
-                  className="w-full h-10 px-3 text-xs rounded-xl bg-black/60 border border-white/10 text-white outline-none focus:border-acid"
-                />
-              </label>
-            </div>
-
-            {metricType === "composition" && (
-              <div className="grid grid-cols-2 gap-3 pt-2 border-t border-white/5 animate-[fadeIn_0.2s_ease-out]">
-                <div className="space-y-3">
-                  <label className="block">
-                    <span className="text-[10px] text-zinc-500 font-bold block mb-1">Gordura Inicial (%)</span>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={initFat}
-                      onChange={(e) => setInitFat(e.target.value)}
-                      placeholder="Ex: 22.5"
-                      className="w-full h-10 px-3 text-xs rounded-xl bg-black/60 border border-white/10 text-white outline-none focus:border-acid"
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="text-[10px] text-zinc-500 font-bold block mb-1">Massa Magra Inicial (kg)</span>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={initMuscle}
-                      onChange={(e) => setInitMuscle(e.target.value)}
-                      placeholder="Ex: 62.0"
-                      className="w-full h-10 px-3 text-xs rounded-xl bg-black/60 border border-white/10 text-white outline-none focus:border-acid"
-                    />
-                  </label>
-                </div>
-
-                <div className="space-y-3">
-                  <label className="block">
-                    <span className="text-[10px] text-orange-500 font-bold block mb-1">Gordura Alvo (%)</span>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={targetFat}
-                      onChange={(e) => setTargetFat(e.target.value)}
-                      placeholder="Ex: 15.0"
-                      className="w-full h-10 px-3 text-xs rounded-xl bg-black/60 border border-white/10 text-white outline-none focus:border-acid"
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="text-[10px] text-cyan font-bold block mb-1">Massa Magra Alvo (kg)</span>
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={targetMuscle}
-                      onChange={(e) => setTargetMuscle(e.target.value)}
-                      placeholder="Ex: 65.0"
-                      className="w-full h-10 px-3 text-xs rounded-xl bg-black/60 border border-white/10 text-white outline-none focus:border-acid"
-                    />
-                  </label>
-                </div>
-              </div>
-            )}
+        {/* 9. Criando Projeto */}
+        {step === "CREATING" && (
+          <div className="flex items-center justify-center gap-2.5 h-10 text-xs font-black text-acid animate-pulse">
+            <RotateCw className="w-4 h-4 animate-spin" />
+            <span>Erguendo os pesos e criando seu projeto...</span>
           </div>
-        </div>
-
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full h-12 rounded-2xl bg-acid text-black font-black text-sm flex items-center justify-center cursor-pointer transition hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50"
-        >
-          {loading ? "Criando seu Projeto..." : "Iniciar Novo Projeto"}
-        </button>
-      </form>
+        )}
+      </div>
     </div>
   );
 }
@@ -4030,6 +4556,45 @@ function ProjectDashboard({
   // Última medição inserida
   const measurements = project.measurements || [];
   const latestMeasurement = measurements.length > 0 ? measurements[measurements.length - 1] : null;
+
+  // Obter valores para comparação
+  const getMetricComparison = () => {
+    let initialVal = 0;
+    let targetVal = 0;
+    let currentVal = 0;
+    let unit = "";
+
+    if (project.metricType === "composition" && selectedTab === "fatPct") {
+      initialVal = project.initialMetrics.fatPct || 0;
+      targetVal = project.targetMetrics.fatPct || 0;
+      currentVal = latestMeasurement ? (latestMeasurement.fatPct || initialVal) : initialVal;
+      unit = "%";
+    } else if (project.metricType === "composition" && selectedTab === "muscleMass") {
+      initialVal = project.initialMetrics.muscleMass || 0;
+      targetVal = project.targetMetrics.muscleMass || 0;
+      currentVal = latestMeasurement ? (latestMeasurement.muscleMass || initialVal) : initialVal;
+      unit = "kg";
+    } else {
+      initialVal = project.initialMetrics.weight;
+      targetVal = project.targetMetrics.weight;
+      currentVal = latestMeasurement ? (latestMeasurement.weight || initialVal) : initialVal;
+      unit = "kg";
+    }
+
+    const valDiff = targetVal - initialVal;
+    const daysPct = Math.min(100, Math.max(0, daysPassed)) / totalDays;
+    const idealVal = initialVal + (valDiff * daysPct);
+
+    return {
+      initialVal,
+      targetVal,
+      currentVal,
+      idealVal,
+      unit
+    };
+  };
+
+  const compVals = getMetricComparison();
 
   const handleAddMeasurement = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -4106,7 +4671,7 @@ function ProjectDashboard({
             onClick={handleCancelProject}
             className="text-[10px] font-bold text-red-500 bg-red-500/10 hover:bg-red-500/20 px-2.5 py-1 rounded-lg transition shrink-0 cursor-pointer"
           >
-            Encerrar
+            Alterar Projeto
           </button>
         </div>
 
@@ -4160,6 +4725,34 @@ function ProjectDashboard({
         project={project} 
         metricKey={project.metricType === "composition" ? selectedTab : "weight"} 
       />
+
+      {/* Comparativo de Estágio Atual vs Realizado */}
+      <div className="bg-white/[0.02] border border-white/5 p-3.5 rounded-2xl space-y-2.5">
+        <div className="flex justify-between items-center">
+          <h4 className="text-[10px] text-zinc-400 uppercase tracking-wider font-black">
+            Progresso Atual ({project.metricType === "composition" && selectedTab === "fatPct" ? "Gordura" : project.metricType === "composition" && selectedTab === "muscleMass" ? "Massa Magra" : "Peso"})
+          </h4>
+          <span className="text-[9px] font-bold text-zinc-500">Estágio: {timeProgressPct}% do tempo</span>
+        </div>
+        <div className="grid grid-cols-2 gap-2 text-center">
+          <div className="bg-black/30 border border-white/5 p-2.5 rounded-xl flex flex-col justify-center">
+            <span className="text-[9px] text-zinc-500 font-bold uppercase block mb-0.5">Esperado (Hoje)</span>
+            <span className="text-sm font-black text-zinc-300">
+              {compVals.idealVal.toFixed(1)}{compVals.unit}
+            </span>
+          </div>
+          <div className="bg-black/30 border border-white/5 p-2.5 rounded-xl flex flex-col justify-center">
+            <span className="text-[9px] text-zinc-500 font-bold uppercase block mb-0.5">Realizado</span>
+            <span className={`text-sm font-black ${
+              project.goalType === "emagrecimento" && selectedTab !== "muscleMass"
+                ? (compVals.currentVal <= compVals.idealVal ? "text-emerald-400" : "text-amber-500")
+                : (compVals.currentVal >= compVals.idealVal ? "text-emerald-400" : "text-amber-500")
+            }`}>
+              {compVals.currentVal.toFixed(1)}{compVals.unit}
+            </span>
+          </div>
+        </div>
+      </div>
 
       {/* Métricas Resumidas: Inicial, Atual, Meta */}
       <div className="grid grid-cols-3 gap-2">

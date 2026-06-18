@@ -1743,3 +1743,49 @@ export async function deleteProjectMeasurementAction(projectId: string, date: st
   return { success: true };
 }
 
+export async function parseCompositionTextWithAIAction(text: string): Promise<{
+  weight?: number;
+  fatPct?: number;
+  muscleMass?: number;
+}> {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Não autorizado");
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content: `Você é um assistente especialista que extrai dados biométricos de descrições textuais em português.
+Extraia os seguintes valores com precisão:
+1. "weight": peso corporal em kg.
+2. "fatPct": percentual de gordura em %.
+3. "muscleMass": massa muscular em kg.
+
+Retorne obrigatoriamente um objeto JSON contendo exatamente as chaves: "weight", "fatPct" e "muscleMass".
+Se algum dado não for encontrado de forma clara na descrição, defina o valor da respectiva chave como null.
+Retorne apenas o JSON puro, sem blocos de código markdown.`
+        },
+        {
+          role: "user",
+          content: text
+        }
+      ],
+      temperature: 0.1
+    });
+
+    const contentText = response.choices[0].message?.content || "{}";
+    const parsed = JSON.parse(contentText);
+    return {
+      weight: parsed.weight !== null ? Number(parsed.weight) : undefined,
+      fatPct: parsed.fatPct !== null ? Number(parsed.fatPct) : undefined,
+      muscleMass: parsed.muscleMass !== null ? Number(parsed.muscleMass) : undefined
+    };
+  } catch (err) {
+    console.error("Erro ao processar texto de composição:", err);
+    return {};
+  }
+}
+
