@@ -118,6 +118,43 @@ export type ActivityItem = {
   status: "pending" | "done" | "skipped";
 };
 
+export type ProjectMeasurement = {
+  date: string; // "YYYY-MM-DD"
+  weight: number;
+  fatPct?: number;
+  muscleMass?: number;
+};
+
+export type ProjectGoalType = "emagrecimento" | "ganho_massa" | "manutencao" | "outros";
+export type ProjectMeasurementFrequency = "daily" | "weekly" | "fortnightly" | "monthly";
+
+export type Project = {
+  _id?: string;
+  userId: string;
+  title: string;
+  goalType: ProjectGoalType;
+  durationDays: number;
+  startDate: string; // "YYYY-MM-DD"
+  endDate: string; // "YYYY-MM-DD"
+  measurementFrequency: ProjectMeasurementFrequency;
+  metricType: "weight" | "composition";
+  initialMetrics: {
+    weight: number;
+    fatPct?: number;
+    muscleMass?: number;
+  };
+  targetMetrics: {
+    weight: number;
+    fatPct?: number;
+    muscleMass?: number;
+  };
+  measurements: ProjectMeasurement[];
+  status: "active" | "completed" | "cancelled";
+  isDeleted?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 // Conecta ao Banco de Dados de forma auxiliar
 async function getDb() {
   const client = await clientPromise;
@@ -1261,5 +1298,323 @@ Responda APENAS com um número inteiro representando as calorias (kcal), sem tex
     console.error("Erro na estimativa de calorias por IA:", err);
     return 0;
   }
+}
+
+// Desmembra e estima valor calórico de um alimento em uma única frase usando IA (gpt-4o-mini)
+export async function parseFoodInputWithAIAction(text: string): Promise<{ name: string; amount: string; calories: number }> {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Não autorizado");
+
+  const prompt = `Você é um assistente de nutrição esportiva. O usuário digitou a seguinte descrição de alimento: "${text}".
+Sua tarefa é desmembrar essa descrição e estimar o valor calórico total.
+Retorne APENAS um JSON no formato:
+{
+  "name": "nome do alimento de forma resumida e limpa (ex: Frango grelhado)",
+  "amount": "a quantidade e peso da comida formatados de forma limpa (ex: 150g)",
+  "calories": calorias em número inteiro (ex: 165)
+}
+Não retorne blocos de código markdown (\`\`\`json ... \`\`\`), explicações ou qualquer texto adicional. Apenas o objeto JSON válido.`;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.1,
+    });
+
+    const content = response.choices[0]?.message?.content?.trim() || "";
+    const cleanJsonStr = content.replace(/^```json\s*/i, "").replace(/```$/, "").trim();
+    const data = JSON.parse(cleanJsonStr);
+    
+    return {
+      name: String(data.name || text),
+      amount: String(data.amount || "1 porção"),
+      calories: Number(data.calories) || 0
+    };
+  } catch (err) {
+    console.error("Erro ao processar alimento com IA:", err);
+    return {
+      name: text,
+      amount: "1 porção",
+      calories: 0
+    };
+  }
+}
+
+function getLocalDateStr(date: Date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+// ==========================================
+// AÇÕES DE PROJETOS DE OBJETIVOS FÍSICOS
+// ==========================================
+
+export async function getActiveProjectAction(): Promise<Project | null> {
+  const { userId } = await auth();
+  if (!userId) return null;
+
+  const db = await getDb();
+  const project = await db.collection("projects").findOne({
+    userId,
+    isDeleted: { $ne: true },
+    status: "active"
+  });
+
+  if (!project) return null;
+
+  return {
+    ...project,
+    _id: project._id.toString()
+  } as unknown as Project;
+}
+
+export async function createProjectAction(data: {
+  title: string;
+  goalType: ProjectGoalType;
+  durationDays: number;
+  measurementFrequency: ProjectMeasurementFrequency;
+  metricType: "weight" | "composition";
+  initialMetrics: {
+    weight: number;
+    fatPct?: number;
+    muscleMass?: number;
+  };
+  targetMetrics: {
+    weight: number;
+    fatPct?: number;
+    muscleMass?: number;
+  };
+}): Promise<{ success: boolean; projectId: string }> {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Não autorizado");
+
+  const db = await getDb();
+
+  // 1. Arquivar projetos ativos anteriores
+  await db.collection("projects").updateMany(
+    { userId, status: "active", isDeleted: { $ne: true } },
+    { $set: { status: "cancelled", updatedAt: new Date().toISOString() } }
+  );
+
+  const startDateObj = new Date();
+  const startDateStr = getLocalDateStr(startDateObj);
+  
+  const endDateObj = new Date();
+  endDateObj.setDate(endDateObj.getDate() + data.durationDays);
+  const endDateStr = getLocalDateStr(endDateObj);
+
+  const newProject: Project = {
+    userId,
+    title: data.title,
+    goalType: data.goalType,
+    durationDays: data.durationDays,
+    startDate: startDateStr,
+    endDate: endDateStr,
+    measurementFrequency: data.measurementFrequency,
+    metricType: data.metricType,
+    initialMetrics: data.initialMetrics,
+    targetMetrics: data.targetMetrics,
+    measurements: [
+      {
+        date: startDateStr,
+        weight: data.initialMetrics.weight,
+        fatPct: data.initialMetrics.fatPct,
+        muscleMass: data.initialMetrics.muscleMass
+      }
+    ],
+    status: "active",
+    isDeleted: false,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+
+  const result = await db.collection("projects").insertOne(newProject as any);
+  
+  // Atualizar a biometria no perfil do usuário para consistência
+  await db.collection("profiles").updateOne(
+    { userId },
+    {
+      $set: {
+        "biometrics.weight": data.initialMetrics.weight,
+        ...(data.initialMetrics.fatPct !== undefined ? { "biometrics.fatPct": data.initialMetrics.fatPct } : {}),
+        ...(data.initialMetrics.muscleMass !== undefined ? { "biometrics.muscleMass": data.initialMetrics.muscleMass } : {}),
+        updatedAt: new Date().toISOString()
+      }
+    }
+  );
+
+  revalidatePath("/");
+  return { success: true, projectId: result.insertedId.toString() };
+}
+
+export async function deleteProjectAction(projectId: string): Promise<{ success: boolean }> {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Não autorizado");
+
+  const db = await getDb();
+  await db.collection("projects").updateOne(
+    { _id: new ObjectId(projectId), userId },
+    { $set: { isDeleted: true, status: "cancelled", updatedAt: new Date().toISOString() } }
+  );
+
+  revalidatePath("/");
+  return { success: true };
+}
+
+export async function addProjectMeasurementAction(
+  projectId: string,
+  measurement: {
+    date: string;
+    weight: number;
+    fatPct?: number;
+    muscleMass?: number;
+  }
+): Promise<{ success: boolean }> {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Não autorizado");
+
+  const db = await getDb();
+  
+  // Garante que a medição não seja duplicada para a mesma data (se já existir, atualiza ela)
+  const project = await db.collection("projects").findOne({ _id: new ObjectId(projectId), userId });
+  if (!project) throw new Error("Projeto não encontrado");
+
+  const existingMeasurements: ProjectMeasurement[] = project.measurements || [];
+  const idx = existingMeasurements.findIndex(m => m.date === measurement.date);
+  
+  if (idx >= 0) {
+    existingMeasurements[idx] = {
+      date: measurement.date,
+      weight: Number(measurement.weight),
+      ...(measurement.fatPct !== undefined ? { fatPct: Number(measurement.fatPct) } : {}),
+      ...(measurement.muscleMass !== undefined ? { muscleMass: Number(measurement.muscleMass) } : {})
+    };
+  } else {
+    existingMeasurements.push({
+      date: measurement.date,
+      weight: Number(measurement.weight),
+      ...(measurement.fatPct !== undefined ? { fatPct: Number(measurement.fatPct) } : {}),
+      ...(measurement.muscleMass !== undefined ? { muscleMass: Number(measurement.muscleMass) } : {})
+    });
+    // Ordena as medições por data
+    existingMeasurements.sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  await db.collection("projects").updateOne(
+    { _id: new ObjectId(projectId), userId },
+    {
+      $set: {
+        measurements: existingMeasurements,
+        updatedAt: new Date().toISOString()
+      }
+    }
+  );
+
+  // Também registra essa medição como uma biometria na ocorrência do dia para alimentar os gráficos gerais do app
+  // E atualiza o perfil do usuário
+  await db.collection("profiles").updateOne(
+    { userId },
+    {
+      $set: {
+        "biometrics.weight": Number(measurement.weight),
+        ...(measurement.fatPct !== undefined ? { "biometrics.fatPct": Number(measurement.fatPct) } : {}),
+        ...(measurement.muscleMass !== undefined ? { "biometrics.muscleMass": Number(measurement.muscleMass) } : {}),
+        updatedAt: new Date().toISOString()
+      }
+    }
+  );
+
+  // Tenta achar se já tem ocorrência de bioimpedância no dia, ou insere
+  const startDayStr = measurement.date;
+  const bioOcc = await db.collection("occurrences").findOne({
+    userId,
+    date: startDayStr,
+    type: "bioimpedancia"
+  });
+
+  if (bioOcc) {
+    await db.collection("occurrences").updateOne(
+      { _id: bioOcc._id },
+      {
+        $set: {
+          status: "done",
+          details: {
+            bio: {
+              weight: Number(measurement.weight),
+              fatPct: measurement.fatPct !== undefined ? Number(measurement.fatPct) : undefined,
+              muscleMass: measurement.muscleMass !== undefined ? Number(measurement.muscleMass) : undefined,
+              done: true
+            }
+          },
+          updatedAt: new Date().toISOString()
+        }
+      }
+    );
+  } else {
+    // Busca se existe algum plano de bioimpedância para linkar, senão cria ocorrência avulsa (override)
+    const activeBioPlan = await db.collection("plans").findOne({
+      userId,
+      type: "bioimpedancia",
+      isDeleted: { $ne: true }
+    });
+
+    await db.collection("occurrences").insertOne({
+      userId,
+      planId: activeBioPlan?._id.toString() || undefined,
+      date: startDayStr,
+      type: "bioimpedancia",
+      status: "done",
+      isOverride: !activeBioPlan,
+      details: {
+        bio: {
+          weight: Number(measurement.weight),
+          fatPct: measurement.fatPct !== undefined ? Number(measurement.fatPct) : undefined,
+          muscleMass: measurement.muscleMass !== undefined ? Number(measurement.muscleMass) : undefined,
+          done: true
+        }
+      },
+      updatedAt: new Date().toISOString()
+    });
+  }
+
+  revalidatePath("/");
+  return { success: true };
+}
+
+export async function deleteProjectMeasurementAction(projectId: string, date: string): Promise<{ success: boolean }> {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Não autorizado");
+
+  const db = await getDb();
+  const project = await db.collection("projects").findOne({ _id: new ObjectId(projectId), userId });
+  if (!project) throw new Error("Projeto não encontrado");
+
+  const measurements: ProjectMeasurement[] = project.measurements || [];
+  const filtered = measurements.filter(m => m.date !== date);
+
+  await db.collection("projects").updateOne(
+    { _id: new ObjectId(projectId), userId },
+    {
+      $set: {
+        measurements: filtered,
+        updatedAt: new Date().toISOString()
+      }
+    }
+  );
+
+  // Também deleta a ocorrência de bioimpedância correspondente daquela data específica se ela foi criada a partir daqui
+  // Para manter os gráficos de estatísticas gerais sintonizados
+  await db.collection("occurrences").deleteOne({
+    userId,
+    date,
+    type: "bioimpedancia",
+    isOverride: true // Apenas se for ocorrência criada avulsa
+  });
+
+  revalidatePath("/");
+  return { success: true };
 }
 

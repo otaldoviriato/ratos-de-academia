@@ -28,7 +28,8 @@ import {
   XCircle,
   Circle,
   TrendingUp,
-  Scale
+  Scale,
+  Target
 } from "lucide-react";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import {
@@ -44,6 +45,12 @@ import {
   getUserRoutineAction,
   getStatisticsDataAction,
   estimateCaloriesAction,
+  parseFoodInputWithAIAction,
+  getActiveProjectAction,
+  createProjectAction,
+  deleteProjectAction,
+  addProjectMeasurementAction,
+  deleteProjectMeasurementAction,
   UserProfile,
   ActivityItem,
   PlanType,
@@ -53,7 +60,11 @@ import {
   BloodExamItem,
   PlanDetails,
   Meal,
-  MealItem
+  MealItem,
+  Project,
+  ProjectMeasurement,
+  ProjectGoalType,
+  ProjectMeasurementFrequency
 } from "./actions";
 import OnboardingChat from "./components/OnboardingChat";
 
@@ -131,11 +142,16 @@ export default function Home() {
   const [isPending, startTransition] = useTransition();
 
   // Estados para as novas abas de navegação
-  const [activeTab, setActiveTab] = useState<"hoje" | "rotina" | "estatisticas">("hoje");
+  const [activeTab, setActiveTab] = useState<"hoje" | "rotina" | "estatisticas" | "projetos">("hoje");
   const [userRoutine, setUserRoutine] = useState<any>(null);
   const [routineLoading, setRoutineLoading] = useState(false);
   const [statisticsData, setStatisticsData] = useState<any>(null);
   const [statsLoading, setStatsLoading] = useState(false);
+
+  // Estados para Projetos
+  const [project, setProject] = useState<Project | null>(null);
+  const [projectLoading, setProjectLoading] = useState(false);
+  const [projectActionPending, startProjectTransition] = useTransition();
 
   // Sub-abas e seletores
   const [selectedWorkoutTab, setSelectedWorkoutTab] = useState("A");
@@ -197,12 +213,27 @@ export default function Home() {
     }
   };
 
+  const loadProjectData = async () => {
+    if (!isSignedIn || profileLoading) return;
+    setProjectLoading(true);
+    try {
+      const activeProject = await getActiveProjectAction();
+      setProject(activeProject);
+    } catch (err) {
+      console.error("Erro ao carregar projeto:", err);
+    } finally {
+      setProjectLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (isOnboarded) {
       if (activeTab === "rotina") {
         loadRoutineData();
       } else if (activeTab === "estatisticas") {
         loadStatisticsData();
+      } else if (activeTab === "projetos") {
+        loadProjectData();
       }
     }
   }, [activeTab, isOnboarded, isSignedIn]);
@@ -663,10 +694,11 @@ export default function Home() {
               </div>
 
               {/* Navegação Inferior (Desktop) */}
-              <nav className="hidden md:grid h-14 shrink-0 grid-cols-4 rounded-lg border border-white/10 bg-white/[0.055] p-1 backdrop-blur-xl">
+              <nav className="hidden md:grid h-14 shrink-0 grid-cols-5 rounded-lg border border-white/10 bg-white/[0.055] p-1 backdrop-blur-xl">
                 <NavButton active={activeTab === "hoje"} icon={HomeIcon} label="Hoje" onClick={() => { setActiveTab("hoje"); setSelectedDate(getLocalDateStr(new Date())); }} />
                 <NavButton active={activeTab === "rotina"} icon={CalendarDays} label="Rotina" onClick={() => setActiveTab("rotina")} />
                 <NavButton active={activeTab === "estatisticas"} icon={TrendingUp} label="Estatísticas" onClick={() => setActiveTab("estatisticas")} />
+                <NavButton active={activeTab === "projetos"} icon={Target} label="Projetos" onClick={() => setActiveTab("projetos")} />
                 <NavButton icon={Settings2} label="Ajustes" onClick={handleEnterAdjustmentMode} />
               </nav>
             </div>
@@ -1258,11 +1290,34 @@ export default function Home() {
                 </div>
               )}
 
+              {activeTab === "projetos" && (
+                <div className="flex-1 flex flex-col min-h-0 space-y-3 overflow-hidden animate-[fadeIn_0.2s_ease-out]">
+                  {projectLoading ? (
+                    <div className="flex-1 flex items-center justify-center">
+                      <p className="text-xs font-semibold text-zinc-400 animate-pulse">Carregando dados do projeto...</p>
+                    </div>
+                  ) : !project ? (
+                    <ProjectCreationForm 
+                      onCreated={() => {
+                        loadProjectData();
+                      }}
+                      userProfile={userProfile}
+                    />
+                  ) : (
+                    <ProjectDashboard 
+                      project={project} 
+                      onUpdate={() => loadProjectData()} 
+                    />
+                  )}
+                </div>
+              )}
+
               {/* Navegação Inferior (Mobile) */}
-              <nav className="mt-3 md:hidden grid h-14 shrink-0 grid-cols-4 rounded-lg border border-white/10 bg-white/[0.055] p-1 backdrop-blur-xl">
+              <nav className="mt-3 md:hidden grid h-14 shrink-0 grid-cols-5 rounded-lg border border-white/10 bg-white/[0.055] p-1 backdrop-blur-xl">
                 <NavButton active={activeTab === "hoje"} icon={HomeIcon} label="Hoje" onClick={() => { setActiveTab("hoje"); setSelectedDate(getLocalDateStr(new Date())); }} />
                 <NavButton active={activeTab === "rotina"} icon={CalendarDays} label="Rotina" onClick={() => setActiveTab("rotina")} />
                 <NavButton active={activeTab === "estatisticas"} icon={TrendingUp} label="Estatísticas" onClick={() => setActiveTab("estatisticas")} />
+                <NavButton active={activeTab === "projetos"} icon={Target} label="Projetos" onClick={() => setActiveTab("projetos")} />
                 <NavButton icon={Settings2} label="Ajustes" onClick={handleEnterAdjustmentMode} />
               </nav>
             </div>
@@ -1545,10 +1600,8 @@ function EditSheet({
   // Estados para adição de novos itens
   // Dieta
   const [activeAddingMealIdx, setActiveAddingMealIdx] = useState<number | null>(null);
-  const [newFoodName, setNewFoodName] = useState("");
-  const [newFoodAmount, setNewFoodAmount] = useState("");
-  const [newFoodCalories, setNewFoodCalories] = useState<number | "">("");
-  const [isEstimatingCalories, setIsEstimatingCalories] = useState(false);
+  const [newFoodInput, setNewFoodInput] = useState("");
+  const [isAddingFood, setIsAddingFood] = useState(false);
 
   // Musculação
   const [showAddExercise, setShowAddExercise] = useState(false);
@@ -1572,40 +1625,30 @@ function EditSheet({
   const [showAddExam, setShowAddExam] = useState(false);
   const [newExamName, setNewExamName] = useState("");
 
-  // Estimar calorias com IA para dieta
-  const handleEstimateDietCalories = async () => {
-    if (!newFoodName) return;
-    setIsEstimatingCalories(true);
+  // Adicionar alimento desmembrando com IA
+  const handleAddDietItemWithAI = async (mealIdx: number) => {
+    if (!newFoodInput.trim()) return;
+    setIsAddingFood(true);
     try {
-      const description = `${newFoodAmount ? newFoodAmount + " de " : ""}${newFoodName}`;
-      const kcal = await estimateCaloriesAction(description, "dieta");
-      setNewFoodCalories(kcal);
+      const parsed = await parseFoodInputWithAIAction(newFoodInput);
+      const next = { ...details };
+      if (next.meals) {
+        const isDone = item.status === "done";
+        next.meals[mealIdx].items.push({
+          name: parsed.name,
+          amount: parsed.amount,
+          calories: parsed.calories,
+          done: isDone ? true : undefined
+        });
+        setDetails(next);
+      }
+      setNewFoodInput("");
+      setActiveAddingMealIdx(null);
     } catch (err) {
       console.error(err);
-      setNewFoodCalories(0);
+      alert("Erro ao adicionar alimento");
     } finally {
-      setIsEstimatingCalories(false);
-    }
-  };
-
-  // Confirmar adição de item de Dieta
-  const handleAddDietItem = (mealIdx: number) => {
-    if (!newFoodName) return;
-    const next = { ...details };
-    if (next.meals) {
-      const isDone = item.status === "done";
-      next.meals[mealIdx].items.push({
-        name: newFoodName,
-        amount: newFoodAmount || "1 dose",
-        calories: Number(newFoodCalories) || 0,
-        done: isDone ? true : undefined
-      });
-      setDetails(next);
-      // Limpa os estados
-      setNewFoodName("");
-      setNewFoodAmount("");
-      setNewFoodCalories("");
-      setActiveAddingMealIdx(null);
+      setIsAddingFood(false);
     }
   };
 
@@ -3568,6 +3611,925 @@ function SimpleSVGChart({
             );
           })}
         </svg>
+      </div>
+    </div>
+  );
+}
+
+function ProjectProgressChart({
+  project,
+  metricKey = "weight"
+}: {
+  project: Project;
+  metricKey: "weight" | "fatPct" | "muscleMass";
+}) {
+  const width = 500;
+  const height = 220;
+  const paddingLeft = 45;
+  const paddingRight = 20;
+  const paddingTop = 25;
+  const paddingBottom = 30;
+
+  const chartWidth = width - paddingLeft - paddingRight;
+  const chartHeight = height - paddingTop - paddingBottom;
+
+  // Datas
+  const startDateStr = project.startDate;
+  const endDateStr = project.endDate;
+  const totalDays = project.durationDays;
+
+  // Valores Iniciais e Alvos
+  const valInicial = project.initialMetrics[metricKey] || 0;
+  const valAlvo = project.targetMetrics[metricKey] || 0;
+
+  if (valInicial === 0 && valAlvo === 0) {
+    return (
+      <div className="h-44 flex flex-col items-center justify-center border border-dashed border-white/10 rounded-2xl text-zinc-600 text-[11px] bg-black/15 p-4 text-center">
+        Métrica indisponível neste projeto.
+      </div>
+    );
+  }
+
+  // Gera pontos da curva ideal projetada
+  const idealPoints: Array<{ x: number; y: number; date: string; value: number }> = [];
+  
+  // Frequência de medição determina o intervalo dos pontos ideais no gráfico
+  let stepDays = 7; // Padrão semanal
+  if (project.measurementFrequency === "daily") stepDays = 1;
+  else if (project.measurementFrequency === "fortnightly") stepDays = 15;
+  else if (project.measurementFrequency === "monthly") stepDays = 30;
+
+  // Função auxiliar para calcular diferença em dias
+  const getDaysBetween = (d1: string, d2: string) => {
+    const t1 = new Date(d1 + "T00:00:00").getTime();
+    const t2 = new Date(d2 + "T00:00:00").getTime();
+    return Math.round((t2 - t1) / (1000 * 60 * 60 * 24));
+  };
+
+  // Função auxiliar para obter data formatada DD/MM
+  const formatChartDate = (dateStr: string) => {
+    if (!dateStr) return "";
+    const parts = dateStr.split("-");
+    if (parts.length === 3) {
+      return `${parts[2]}/${parts[1]}`;
+    }
+    return dateStr;
+  };
+
+  // Pontos Reais
+  const realMeasurements = project.measurements || [];
+  const realPointsData = realMeasurements
+    .filter(m => m[metricKey] !== undefined)
+    .map(m => ({
+      date: m.date,
+      value: Number(m[metricKey])
+    }));
+
+  // Encontra limites mínimo e máximo para o eixo Y
+  const allValues = [
+    valInicial,
+    valAlvo,
+    ...realPointsData.map(p => p.value)
+  ];
+  const minY = Math.min(...allValues);
+  const maxY = Math.max(...allValues);
+  const yRange = maxY - minY;
+  const yMinBound = yRange === 0 ? Math.max(0, minY - 5) : Math.max(0, minY - yRange * 0.15);
+  const yMaxBound = yRange === 0 ? maxY + 5 : maxY + yRange * 0.15;
+  const ySpan = yMaxBound - yMinBound;
+
+  // Mapeamento de coordenadas X para um dia t
+  const getXCoord = (dateStr: string) => {
+    const daysFromStart = getDaysBetween(startDateStr, dateStr);
+    const pct = Math.max(0, Math.min(1, daysFromStart / totalDays));
+    return paddingLeft + pct * chartWidth;
+  };
+
+  // Mapeamento de coordenadas Y para um valor v
+  const getYCoord = (val: number) => {
+    return paddingTop + chartHeight - ((val - yMinBound) / (ySpan || 1)) * chartHeight;
+  };
+
+  // Gerar pontos ideais ao longo do tempo de forma linear
+  for (let i = 0; i <= totalDays; i += stepDays) {
+    const pct = i / totalDays;
+    const val = valInicial + pct * (valAlvo - valInicial);
+    
+    // Calcula a data para o dia i
+    const dObj = new Date(startDateStr + "T00:00:00");
+    dObj.setDate(dObj.getDate() + i);
+    const dateS = getLocalDateStr(dObj);
+
+    idealPoints.push({
+      x: paddingLeft + pct * chartWidth,
+      y: getYCoord(val),
+      date: dateS,
+      value: val
+    });
+  }
+
+  // Garante que o último dia esteja incluso na curva ideal
+  if (getDaysBetween(startDateStr, idealPoints[idealPoints.length - 1].date) < totalDays) {
+    const dObj = new Date(startDateStr + "T00:00:00");
+    dObj.setDate(dObj.getDate() + totalDays);
+    const dateS = getLocalDateStr(dObj);
+    idealPoints.push({
+      x: paddingLeft + chartWidth,
+      y: getYCoord(valAlvo),
+      date: dateS,
+      value: valAlvo
+    });
+  }
+
+  // Desenhar caminho Ideal
+  let idealPath = "";
+  if (idealPoints.length > 0) {
+    idealPath = `M ${idealPoints[0].x} ${idealPoints[0].y} ` + idealPoints.slice(1).map(p => `L ${p.x} ${p.y}`).join(" ");
+  }
+
+  // Mapear pontos reais
+  const realPoints = realPointsData.map(pt => ({
+    x: getXCoord(pt.date),
+    y: getYCoord(pt.value),
+    date: pt.date,
+    value: pt.value
+  }));
+
+  // Ordena os pontos reais por data/coordenada X
+  realPoints.sort((a, b) => a.x - b.x);
+
+  // Desenhar caminho Real
+  let realLinePath = "";
+  let realAreaPath = "";
+  if (realPoints.length > 0) {
+    realLinePath = `M ${realPoints[0].x} ${realPoints[0].y} ` + realPoints.slice(1).map(p => `L ${p.x} ${p.y}`).join(" ");
+    realAreaPath = `${realLinePath} L ${realPoints[realPoints.length - 1].x} ${paddingTop + chartHeight} L ${realPoints[0].x} ${paddingTop + chartHeight} Z`;
+  }
+
+  // Cores dinâmicas por métrica
+  let color = "#b6f348"; // acid
+  let metricLabel = "Peso";
+  let yUnit = " kg";
+
+  if (metricKey === "fatPct") {
+    color = "#f59e0b"; // laranja/amber
+    metricLabel = "Gordura";
+    yUnit = " %";
+  } else if (metricKey === "muscleMass") {
+    color = "#52d6ff"; // cyan
+    metricLabel = "Massa Magra";
+    yUnit = " kg";
+  }
+
+  // Linhas de Grade Y
+  const gridLines = [];
+  const gridCount = 4;
+  for (let i = 0; i < gridCount; i++) {
+    const yVal = yMinBound + (i / (gridCount - 1)) * ySpan;
+    const yPos = paddingTop + chartHeight - (i / (gridCount - 1)) * chartHeight;
+    gridLines.push({ value: yVal, y: yPos });
+  }
+
+  // Gerar rótulos do eixo X (Início, Meio, Fim)
+  const xLabels = [
+    { x: paddingLeft, date: startDateStr, label: "Início" },
+    { x: paddingLeft + chartWidth / 2, date: addDays(startDateStr, Math.round(totalDays / 2)), label: "Metade" },
+    { x: paddingLeft + chartWidth, date: endDateStr, label: "Meta" }
+  ];
+
+  return (
+    <div className="w-full bg-black/25 border border-white/5 rounded-2xl p-4 flex flex-col gap-2 relative">
+      <div className="flex justify-between items-center text-xs shrink-0">
+        <span className="font-black text-zinc-300 uppercase tracking-wider">{metricLabel}</span>
+        <div className="flex gap-3 text-[10px] text-zinc-500 font-bold">
+          <div className="flex items-center gap-1.5">
+            <span className="w-2.5 h-0.5 bg-zinc-600 border border-dashed border-zinc-400 inline-block"></span>
+            <span>Ideal</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2 rounded-full inline-block" style={{ backgroundColor: color }}></span>
+            <span>Real</span>
+          </div>
+        </div>
+      </div>
+      
+      <div className="relative w-full h-[180px] mt-1">
+        <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="projectChartGradient" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={color} stopOpacity="0.2" />
+              <stop offset="100%" stopColor={color} stopOpacity="0.0" />
+            </linearGradient>
+          </defs>
+
+          {/* Linhas de Grade Horizontais */}
+          {gridLines.map((line, idx) => (
+            <g key={idx}>
+              <line
+                x1={paddingLeft}
+                y1={line.y}
+                x2={width - paddingRight}
+                y2={line.y}
+                stroke="rgba(255, 255, 255, 0.05)"
+                strokeDasharray="4 4"
+              />
+              <text
+                x={paddingLeft - 8}
+                y={line.y + 3}
+                textAnchor="end"
+                className="text-[9px] font-bold fill-zinc-500"
+              >
+                {line.value.toFixed(1)}
+                {yUnit}
+              </text>
+            </g>
+          ))}
+
+          {/* Área preenchida Real */}
+          {realAreaPath && (
+            <path
+              d={realAreaPath}
+              fill="url(#projectChartGradient)"
+            />
+          )}
+
+          {/* Linha do progresso Ideal */}
+          {idealPath && (
+            <path
+              d={idealPath}
+              fill="none"
+              stroke="rgba(255, 255, 255, 0.25)"
+              strokeDasharray="4 4"
+              strokeWidth="1.5"
+            />
+          )}
+
+          {/* Linha do progresso Real */}
+          {realLinePath && (
+            <path
+              d={realLinePath}
+              fill="none"
+              stroke={color}
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          )}
+
+          {/* Pontos da curva Real */}
+          {realPoints.map((p, idx) => (
+            <g key={idx} className="group/point">
+              <circle
+                cx={p.x}
+                cy={p.y}
+                r="4.5"
+                fill="#07090d"
+                stroke={color}
+                strokeWidth="2.5"
+                className="transition-all duration-200 cursor-pointer hover:r-[6px]"
+              />
+              <title>{`${p.value}${yUnit} em ${formatChartDate(p.date)}`}</title>
+            </g>
+          ))}
+
+          {/* Rótulos do Eixo X */}
+          {xLabels.map((lbl, idx) => (
+            <g key={idx}>
+              <line
+                x1={lbl.x}
+                y1={paddingTop + chartHeight}
+                x2={lbl.x}
+                y2={paddingTop + chartHeight + 4}
+                stroke="rgba(255, 255, 255, 0.1)"
+              />
+              <text
+                x={lbl.x}
+                y={height - 6}
+                textAnchor="middle"
+                className="text-[9px] font-bold fill-zinc-500"
+              >
+                {`${lbl.label} (${formatChartDate(lbl.date)})`}
+              </text>
+            </g>
+          ))}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+function addDays(d: string, days: number): string {
+  const date = new Date(d + "T00:00:00");
+  date.setDate(date.getDate() + days);
+  return getLocalDateStr(date);
+}
+
+function ProjectCreationForm({
+  onCreated,
+  userProfile
+}: {
+  onCreated: () => void;
+  userProfile: any;
+}) {
+  const [title, setTitle] = useState("");
+  const [goalType, setGoalType] = useState<ProjectGoalType>("emagrecimento");
+  const [durationDays, setDurationDays] = useState(90);
+  const [metricType, setMetricType] = useState<"weight" | "composition">("weight");
+  const [frequency, setFrequency] = useState<ProjectMeasurementFrequency>("weekly");
+
+  // Métricas Iniciais (sugerir do perfil)
+  const [initWeight, setInitWeight] = useState(userProfile?.biometrics?.weight?.toString() || "");
+  const [initFat, setInitFat] = useState(userProfile?.biometrics?.fatPct?.toString() || "");
+  const [initMuscle, setInitMuscle] = useState(userProfile?.biometrics?.muscleMass?.toString() || "");
+
+  // Métricas Alvo
+  const [targetWeight, setTargetWeight] = useState("");
+  const [targetFat, setTargetFat] = useState("");
+  const [targetMuscle, setTargetMuscle] = useState("");
+
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+
+    if (!title.trim()) {
+      setError("Por favor, dê um título ao seu projeto.");
+      return;
+    }
+
+    const initialW = parseFloat(initWeight);
+    const targetW = parseFloat(targetWeight);
+
+    if (isNaN(initialW) || initialW <= 0) {
+      setError("Por favor, insira um peso inicial válido.");
+      return;
+    }
+    if (isNaN(targetW) || targetW <= 0) {
+      setError("Por favor, insira um peso alvo válido.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const initialMetrics = {
+        weight: initialW,
+        fatPct: metricType === "composition" && initFat ? parseFloat(initFat) : undefined,
+        muscleMass: metricType === "composition" && initMuscle ? parseFloat(initMuscle) : undefined
+      };
+
+      const targetMetrics = {
+        weight: targetW,
+        fatPct: metricType === "composition" && targetFat ? parseFloat(targetFat) : undefined,
+        muscleMass: metricType === "composition" && targetMuscle ? parseFloat(targetMuscle) : undefined
+      };
+
+      await createProjectAction({
+        title,
+        goalType,
+        durationDays: Number(durationDays),
+        measurementFrequency: frequency,
+        metricType,
+        initialMetrics,
+        targetMetrics
+      });
+
+      onCreated();
+    } catch (err: any) {
+      setError(err.message || "Erro ao criar projeto.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0 overflow-y-auto pr-1 pb-4 animate-[fadeIn_0.2s_ease-out]">
+      <div className="bg-white/[0.02] border border-white/5 p-4 rounded-2xl mb-4 text-center">
+        <Target className="w-10 h-10 text-acid mx-auto mb-2" />
+        <h3 className="text-sm font-black text-white">Crie o seu Projeto de Objetivos</h3>
+        <p className="text-xs text-zinc-500 mt-1">
+          Defina uma meta física, selecione a frequência de medição e visualize sua jornada com projeções ideais.
+        </p>
+      </div>
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {error && (
+          <div className="bg-red-500/10 border border-red-500/20 text-red-200 text-xs p-3 rounded-lg font-bold">
+            {error}
+          </div>
+        )}
+
+        <div className="bg-black/40 border border-white/5 p-4 rounded-2xl space-y-3">
+          <label className="block">
+            <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold block mb-1">Título do Projeto</span>
+            <input
+              type="text"
+              required
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Ex: Projeto Verão Trincado, Definição 90 dias"
+              className="w-full h-10 px-3 text-xs rounded-xl bg-black/60 border border-white/10 text-white outline-none focus:border-acid"
+            />
+          </label>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold block mb-1">Objetivo</span>
+              <select
+                value={goalType}
+                onChange={(e: any) => setGoalType(e.target.value)}
+                className="w-full h-10 px-3 text-xs rounded-xl bg-black/60 border border-white/10 text-white outline-none focus:border-acid"
+              >
+                <option value="emagrecimento">Emagrecimento</option>
+                <option value="ganho_massa">Ganho de Massa</option>
+                <option value="manutencao">Definição / Manutenção</option>
+                <option value="outros">Outros</option>
+              </select>
+            </label>
+
+            <label className="block">
+              <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold block mb-1">Duração (Dias)</span>
+              <select
+                value={durationDays}
+                onChange={(e) => setDurationDays(Number(e.target.value))}
+                className="w-full h-10 px-3 text-xs rounded-xl bg-black/60 border border-white/10 text-white outline-none focus:border-acid"
+              >
+                <option value={30}>30 Dias (1 Mês)</option>
+                <option value={60}>60 Dias (2 Meses)</option>
+                <option value={90}>90 Dias (3 Meses)</option>
+                <option value={120}>120 Dias (4 Meses)</option>
+                <option value={180}>180 Dias (6 Meses)</option>
+              </select>
+            </label>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold block mb-1">Foco de Acompanhamento</span>
+              <select
+                value={metricType}
+                onChange={(e: any) => setMetricType(e.target.value)}
+                className="w-full h-10 px-3 text-xs rounded-xl bg-black/60 border border-white/10 text-white outline-none focus:border-acid"
+              >
+                <option value="weight">Apenas Peso (kg)</option>
+                <option value="composition">Composição Corporal</option>
+              </select>
+            </label>
+
+            <label className="block">
+              <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold block mb-1">Frequência de Medição</span>
+              <select
+                value={frequency}
+                onChange={(e: any) => setFrequency(e.target.value)}
+                className="w-full h-10 px-3 text-xs rounded-xl bg-black/60 border border-white/10 text-white outline-none focus:border-acid"
+              >
+                <option value="daily">Diariamente</option>
+                <option value="weekly">Semanalmente</option>
+                <option value="fortnightly">A cada 15 dias</option>
+                <option value="monthly">A cada mês</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        {/* Métricas Iniciais vs. Alvo */}
+        <div className="bg-black/40 border border-white/5 p-4 rounded-2xl space-y-4">
+          <h4 className="text-[10px] text-zinc-400 uppercase tracking-wider font-black border-b border-white/5 pb-2">Métricas e Metas</h4>
+
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block">
+                <span className="text-[10px] text-zinc-500 font-bold block mb-1">Peso Inicial (kg)</span>
+                <input
+                  type="number"
+                  step="0.1"
+                  required
+                  value={initWeight}
+                  onChange={(e) => setInitWeight(e.target.value)}
+                  placeholder="Ex: 85.5"
+                  className="w-full h-10 px-3 text-xs rounded-xl bg-black/60 border border-white/10 text-white outline-none focus:border-acid"
+                />
+              </label>
+
+              <label className="block">
+                <span className="text-[10px] text-acid font-bold block mb-1">Peso Alvo (kg)</span>
+                <input
+                  type="number"
+                  step="0.1"
+                  required
+                  value={targetWeight}
+                  onChange={(e) => setTargetWeight(e.target.value)}
+                  placeholder="Ex: 78.0"
+                  className="w-full h-10 px-3 text-xs rounded-xl bg-black/60 border border-white/10 text-white outline-none focus:border-acid"
+                />
+              </label>
+            </div>
+
+            {metricType === "composition" && (
+              <div className="grid grid-cols-2 gap-3 pt-2 border-t border-white/5 animate-[fadeIn_0.2s_ease-out]">
+                <div className="space-y-3">
+                  <label className="block">
+                    <span className="text-[10px] text-zinc-500 font-bold block mb-1">Gordura Inicial (%)</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={initFat}
+                      onChange={(e) => setInitFat(e.target.value)}
+                      placeholder="Ex: 22.5"
+                      className="w-full h-10 px-3 text-xs rounded-xl bg-black/60 border border-white/10 text-white outline-none focus:border-acid"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-[10px] text-zinc-500 font-bold block mb-1">Massa Magra Inicial (kg)</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={initMuscle}
+                      onChange={(e) => setInitMuscle(e.target.value)}
+                      placeholder="Ex: 62.0"
+                      className="w-full h-10 px-3 text-xs rounded-xl bg-black/60 border border-white/10 text-white outline-none focus:border-acid"
+                    />
+                  </label>
+                </div>
+
+                <div className="space-y-3">
+                  <label className="block">
+                    <span className="text-[10px] text-orange-500 font-bold block mb-1">Gordura Alvo (%)</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={targetFat}
+                      onChange={(e) => setTargetFat(e.target.value)}
+                      placeholder="Ex: 15.0"
+                      className="w-full h-10 px-3 text-xs rounded-xl bg-black/60 border border-white/10 text-white outline-none focus:border-acid"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-[10px] text-cyan font-bold block mb-1">Massa Magra Alvo (kg)</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={targetMuscle}
+                      onChange={(e) => setTargetMuscle(e.target.value)}
+                      placeholder="Ex: 65.0"
+                      className="w-full h-10 px-3 text-xs rounded-xl bg-black/60 border border-white/10 text-white outline-none focus:border-acid"
+                    />
+                  </label>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <button
+          type="submit"
+          disabled={loading}
+          className="w-full h-12 rounded-2xl bg-acid text-black font-black text-sm flex items-center justify-center cursor-pointer transition hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50"
+        >
+          {loading ? "Criando seu Projeto..." : "Iniciar Novo Projeto"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+function ProjectDashboard({
+  project,
+  onUpdate
+}: {
+  project: Project;
+  onUpdate: () => void;
+}) {
+  const [selectedTab, setSelectedTab] = useState<"weight" | "fatPct" | "muscleMass">("weight");
+  const [showAddForm, setShowAddForm] = useState(false);
+
+  // Campos para nova medição
+  const [weight, setWeight] = useState("");
+  const [fatPct, setFatPct] = useState("");
+  const [muscleMass, setMuscleMass] = useState("");
+  const [date, setDate] = useState(() => getLocalDateStr(new Date()));
+
+  const [loading, setLoading] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const getGoalTypeLabel = (type: string) => {
+    switch (type) {
+      case "emagrecimento": return "Emagrecimento";
+      case "ganho_massa": return "Ganho de Massa";
+      case "manutencao": return "Manutenção/Definição";
+      default: return "Objetivos Físicos";
+    }
+  };
+
+  // Cálculo de dias restantes
+  const tStart = new Date(project.startDate + "T00:00:00").getTime();
+  const tEnd = new Date(project.endDate + "T00:00:00").getTime();
+  const tToday = new Date(getLocalDateStr(new Date()) + "T00:00:00").getTime();
+
+  const totalDays = project.durationDays;
+  const daysPassed = Math.max(0, Math.round((tToday - tStart) / (1000 * 60 * 60 * 24)));
+  const daysRemaining = Math.max(0, totalDays - daysPassed);
+  const timeProgressPct = Math.min(100, Math.round((daysPassed / totalDays) * 100));
+
+  // Última medição inserida
+  const measurements = project.measurements || [];
+  const latestMeasurement = measurements.length > 0 ? measurements[measurements.length - 1] : null;
+
+  const handleAddMeasurement = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+
+    const w = parseFloat(weight);
+    if (isNaN(w) || w <= 0) {
+      setError("Por favor, insira um peso válido.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await addProjectMeasurementAction(project._id!, {
+        date,
+        weight: w,
+        fatPct: project.metricType === "composition" && fatPct ? parseFloat(fatPct) : undefined,
+        muscleMass: project.metricType === "composition" && muscleMass ? parseFloat(muscleMass) : undefined
+      });
+
+      // Limpa campos
+      setWeight("");
+      setFatPct("");
+      setMuscleMass("");
+      setShowAddForm(false);
+      onUpdate();
+    } catch (err: any) {
+      setError(err.message || "Erro ao adicionar medição.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteMeasurement = async (measDate: string) => {
+    if (!confirm(`Tem certeza que deseja excluir a medição de ${measDate}?`)) return;
+
+    setDeleteLoading(true);
+    try {
+      await deleteProjectMeasurementAction(project._id!, measDate);
+      onUpdate();
+    } catch (err: any) {
+      alert(err.message || "Erro ao excluir medição.");
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  const handleCancelProject = async () => {
+    if (!confirm("Aviso: Cancelar este projeto irá arquivar seu progresso atual e você não poderá adicionar novas medições. Continuar?")) return;
+
+    try {
+      await deleteProjectAction(project._id!);
+      onUpdate();
+    } catch (err: any) {
+      alert(err.message || "Erro ao arquivar projeto.");
+    }
+  };
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0 overflow-y-auto pr-1 pb-4 animate-[fadeIn_0.2s_ease-out] space-y-3">
+      {/* Card Header do Projeto */}
+      <div className="bg-white/[0.02] border border-white/5 p-4 rounded-2xl relative overflow-hidden">
+        <div className="flex justify-between items-start">
+          <div>
+            <span className="text-[9px] bg-acid/20 text-acid px-2 py-0.5 rounded font-black uppercase tracking-wider">
+              {getGoalTypeLabel(project.goalType)}
+            </span>
+            <h3 className="text-sm font-black text-white mt-1.5">{project.title}</h3>
+            <p className="text-[10px] text-zinc-500 font-bold mt-0.5">
+              Início: {project.startDate} &bull; Meta: {project.endDate}
+            </p>
+          </div>
+          <button
+            onClick={handleCancelProject}
+            className="text-[10px] font-bold text-red-500 bg-red-500/10 hover:bg-red-500/20 px-2.5 py-1 rounded-lg transition shrink-0 cursor-pointer"
+          >
+            Encerrar
+          </button>
+        </div>
+
+        {/* Barra de Progresso do Tempo */}
+        <div className="mt-4 space-y-1">
+          <div className="flex justify-between text-[10px] font-bold">
+            <span className="text-zinc-400">Dia {daysPassed} de {totalDays}</span>
+            <span className="text-zinc-500">{daysRemaining} dias restantes</span>
+          </div>
+          <div className="w-full h-2 rounded-full bg-white/5 overflow-hidden">
+            <div 
+              className="h-full bg-acid rounded-full transition-all duration-500" 
+              style={{ width: `${timeProgressPct}%` }}
+            ></div>
+          </div>
+        </div>
+      </div>
+
+      {/* Seletor de Métricas para Gráfico (se Composição) */}
+      {project.metricType === "composition" && (
+        <div className="flex gap-1 shrink-0">
+          <button
+            onClick={() => setSelectedTab("weight")}
+            className={`px-3 py-1.5 text-[10px] font-black rounded-lg transition-all cursor-pointer ${
+              selectedTab === "weight" ? "bg-acid text-black font-black" : "bg-black/40 border border-white/5 text-zinc-400"
+            }`}
+          >
+            Peso
+          </button>
+          <button
+            onClick={() => setSelectedTab("fatPct")}
+            className={`px-3 py-1.5 text-[10px] font-black rounded-lg transition-all cursor-pointer ${
+              selectedTab === "fatPct" ? "bg-amber-500 text-black font-black" : "bg-black/40 border border-white/5 text-zinc-400"
+            }`}
+          >
+            Gordura %
+          </button>
+          <button
+            onClick={() => setSelectedTab("muscleMass")}
+            className={`px-3 py-1.5 text-[10px] font-black rounded-lg transition-all cursor-pointer ${
+              selectedTab === "muscleMass" ? "bg-cyan text-black font-black" : "bg-black/40 border border-white/5 text-zinc-400"
+            }`}
+          >
+            Massa Magra
+          </button>
+        </div>
+      )}
+
+      {/* Gráfico SVG */}
+      <ProjectProgressChart 
+        project={project} 
+        metricKey={project.metricType === "composition" ? selectedTab : "weight"} 
+      />
+
+      {/* Métricas Resumidas: Inicial, Atual, Meta */}
+      <div className="grid grid-cols-3 gap-2">
+        <div className="bg-black/20 border border-white/5 p-2 rounded-xl text-center">
+          <span className="text-[9px] text-zinc-500 font-bold uppercase block">Inicial</span>
+          <span className="text-xs font-black text-zinc-400">
+            {project.metricType === "composition" && selectedTab === "fatPct"
+              ? `${project.initialMetrics.fatPct || "-"}%`
+              : project.metricType === "composition" && selectedTab === "muscleMass"
+              ? `${project.initialMetrics.muscleMass || "-"}kg`
+              : `${project.initialMetrics.weight}kg`}
+          </span>
+        </div>
+        <div className="bg-black/20 border border-white/5 p-2 rounded-xl text-center">
+          <span className="text-[9px] text-zinc-500 font-bold uppercase block">Última</span>
+          <span className="text-xs font-black text-white">
+            {latestMeasurement
+              ? (project.metricType === "composition" && selectedTab === "fatPct"
+                ? `${latestMeasurement.fatPct || "-"}%`
+                : project.metricType === "composition" && selectedTab === "muscleMass"
+                ? `${latestMeasurement.muscleMass || "-"}kg`
+                : `${latestMeasurement.weight}kg`)
+              : "-"}
+          </span>
+        </div>
+        <div className="bg-black/20 border border-white/5 p-2 rounded-xl text-center">
+          <span className="text-[9px] text-zinc-500 font-bold uppercase block">Meta</span>
+          <span className="text-xs font-black text-acid">
+            {project.metricType === "composition" && selectedTab === "fatPct"
+              ? `${project.targetMetrics.fatPct || "-"}%`
+              : project.metricType === "composition" && selectedTab === "muscleMass"
+              ? `${project.targetMetrics.muscleMass || "-"}kg`
+              : `${project.targetMetrics.weight}kg`}
+          </span>
+        </div>
+      </div>
+
+      {/* Seção Registrar Medição */}
+      {showAddForm ? (
+        <form onSubmit={handleAddMeasurement} className="bg-black/40 border border-white/5 p-4 rounded-2xl space-y-3 animate-[fadeIn_0.2s_ease-out]">
+          <div className="flex justify-between items-center border-b border-white/5 pb-2">
+            <h4 className="text-[10px] text-zinc-300 uppercase font-black">Nova Medição</h4>
+            <button 
+              type="button" 
+              onClick={() => setShowAddForm(false)}
+              className="text-[10px] text-zinc-500 hover:text-white font-bold cursor-pointer"
+            >
+              Cancelar
+            </button>
+          </div>
+
+          {error && (
+            <div className="bg-red-500/10 border border-red-500/20 text-red-200 text-xs p-2 rounded-lg font-bold">
+              {error}
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="text-[9px] text-zinc-500 font-bold block mb-1">Data</span>
+              <input
+                type="date"
+                required
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="w-full h-9 px-2.5 text-xs rounded bg-black/60 border border-white/10 text-white outline-none focus:border-acid"
+              />
+            </label>
+
+            <label className="block">
+              <span className="text-[9px] text-zinc-500 font-bold block mb-1">Peso (kg)</span>
+              <input
+                type="number"
+                step="0.1"
+                required
+                value={weight}
+                onChange={(e) => setWeight(e.target.value)}
+                placeholder="Ex: 84.2"
+                className="w-full h-9 px-2.5 text-xs rounded bg-black/60 border border-white/10 text-white outline-none focus:border-acid"
+              />
+            </label>
+          </div>
+
+          {project.metricType === "composition" && (
+            <div className="grid grid-cols-2 gap-3 pt-2 border-t border-white/5">
+              <label className="block">
+                <span className="text-[9px] text-zinc-500 font-bold block mb-1">Gordura (%)</span>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={fatPct}
+                  onChange={(e) => setFatPct(e.target.value)}
+                  placeholder="Ex: 21.0"
+                  className="w-full h-9 px-2.5 text-xs rounded bg-black/60 border border-white/10 text-white outline-none focus:border-acid"
+                />
+              </label>
+
+              <label className="block">
+                <span className="text-[9px] text-zinc-500 font-bold block mb-1">Massa Magra (kg)</span>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={muscleMass}
+                  onChange={(e) => setMuscleMass(e.target.value)}
+                  placeholder="Ex: 62.5"
+                  className="w-full h-9 px-2.5 text-xs rounded bg-black/60 border border-white/10 text-white outline-none focus:border-acid"
+                />
+              </label>
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full h-10 rounded-xl bg-acid text-black font-black text-xs flex items-center justify-center cursor-pointer transition hover:scale-[1.01]"
+          >
+            {loading ? "Salvando..." : "Salvar Medição"}
+          </button>
+        </form>
+      ) : (
+        <button
+          onClick={() => {
+            setDate(getLocalDateStr(new Date()));
+            setShowAddForm(true);
+          }}
+          className="w-full h-11 border border-dashed border-white/10 hover:border-acid/30 text-[11px] text-zinc-400 hover:text-acid font-bold rounded-2xl transition flex items-center justify-center gap-1.5 cursor-pointer bg-black/10"
+        >
+          <Plus size={14} /> Registrar Medição de Progresso
+        </button>
+      )}
+
+      {/* Histórico de Medições */}
+      <div className="bg-black/20 border border-white/5 p-4 rounded-2xl space-y-2">
+        <h4 className="text-[10px] text-zinc-400 uppercase font-black tracking-wider">Histórico de Pesagens</h4>
+        {measurements.length === 0 ? (
+          <p className="text-[10px] text-zinc-600 text-center py-2">Nenhuma medição registrada ainda.</p>
+        ) : (
+          <div className="divide-y divide-white/5 max-h-48 overflow-y-auto pr-1">
+            {measurements.slice().reverse().map((meas, idx) => (
+              <div key={idx} className="flex justify-between items-center py-2 text-[10px] font-bold text-zinc-400">
+                <div>
+                  <span className="text-white block">{meas.date.split("-").reverse().join("/")}</span>
+                  <span className="text-[9px] text-zinc-500 font-bold block mt-0.5">
+                    {project.metricType === "composition"
+                      ? `Gordura: ${meas.fatPct || "-"}% | Massa Magra: ${meas.muscleMass || "-"}kg`
+                      : "Apenas Peso"}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="text-zinc-200 font-black">{meas.weight} kg</span>
+                  {meas.date !== project.startDate && (
+                    <button
+                      onClick={() => handleDeleteMeasurement(meas.date)}
+                      disabled={deleteLoading}
+                      className="text-red-500 hover:text-red-400 cursor-pointer"
+                    >
+                      Excluir
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
