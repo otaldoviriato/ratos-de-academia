@@ -1652,6 +1652,32 @@ function EditSheet({
     }
   };
 
+  // Adicionar alimento dietItems geral desmembrando com IA
+  const handleAddGeneralDietItemWithAI = async () => {
+    if (!newFoodInput.trim()) return;
+    setIsAddingFood(true);
+    try {
+      const parsed = await parseFoodInputWithAIAction(newFoodInput);
+      const next = { ...details };
+      if (!next.dietItems) next.dietItems = [];
+      const isDone = item.status === "done";
+      next.dietItems.push({
+        name: parsed.name,
+        amount: parsed.amount,
+        calories: parsed.calories,
+        done: isDone ? true : undefined
+      });
+      setDetails(next);
+      setNewFoodInput("");
+      setActiveAddingMealIdx(null);
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao adicionar alimento");
+    } finally {
+      setIsAddingFood(false);
+    }
+  };
+
   // Remover Item de Dieta
   const handleRemoveDietItem = (mealIdx: number, itemIdx: number) => {
     const next = { ...details };
@@ -2098,76 +2124,52 @@ function EditSheet({
                           type="button"
                           onClick={() => {
                             setActiveAddingMealIdx(mealIdx);
-                            setNewFoodName("");
-                            setNewFoodAmount("");
-                            setNewFoodCalories("");
+                            setNewFoodInput("");
                           }}
                           className="w-full h-8 rounded-lg border border-dashed border-white/5 hover:border-white/10 text-[11px] font-bold text-zinc-500 hover:text-white flex items-center justify-center gap-1 transition cursor-pointer"
                         >
                           <Plus size={12} /> Adicionar item
                         </button>
                       ) : (
-                        <div className="bg-black/30 p-3 rounded-lg border border-white/5 space-y-2.5 mt-1">
+                        <div className="bg-black/30 p-3 rounded-lg border border-white/5 space-y-2 mt-1">
                           <div className="text-[10px] font-bold text-zinc-400 uppercase">Novo Alimento</div>
-                          <div className="grid grid-cols-2 gap-2">
-                            <label className="block col-span-2 sm:col-span-1">
-                              <span className="text-[9px] text-zinc-500 block mb-0.5">Nome do Alimento</span>
-                              <input
-                                type="text"
-                                value={newFoodName}
-                                onChange={(e) => setNewFoodName(e.target.value)}
-                                placeholder="Ex: Frango grelhado"
-                                className="w-full h-8 px-2 text-xs rounded bg-black/40 border border-white/10 text-white outline-none focus:border-emerald-400"
-                              />
-                            </label>
-                            <label className="block col-span-2 sm:col-span-1">
-                              <span className="text-[9px] text-zinc-500 block mb-0.5">Quantidade</span>
-                              <input
-                                type="text"
-                                value={newFoodAmount}
-                                onChange={(e) => setNewFoodAmount(e.target.value)}
-                                placeholder="Ex: 150g"
-                                className="w-full h-8 px-2 text-xs rounded bg-black/40 border border-white/10 text-white outline-none focus:border-emerald-400"
-                              />
-                            </label>
-                          </div>
-                          
-                          <div className="flex items-end gap-2">
-                            <label className="flex-1">
-                              <span className="text-[9px] text-zinc-500 block mb-0.5">Calorias (kcal)</span>
-                              <input
-                                type="number"
-                                value={newFoodCalories}
-                                onChange={(e) => setNewFoodCalories(Number(e.target.value) || "")}
-                                placeholder="IA estima ou digite"
-                                className="w-full h-8 px-2 text-xs rounded bg-black/40 border border-white/10 text-white outline-none focus:border-emerald-400 font-bold text-emerald-300"
-                              />
-                            </label>
+                          <div className="flex gap-2">
+                            <input
+                              type="text"
+                              disabled={isAddingFood}
+                              value={newFoodInput}
+                              onChange={(e) => setNewFoodInput(e.target.value)}
+                              placeholder="Ex: 150g de frango grelhado ou 1 banana"
+                              className="flex-1 h-9 px-3 text-xs rounded bg-black/40 border border-white/10 text-white outline-none focus:border-emerald-400"
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  handleAddDietItemWithAI(mealIdx);
+                                }
+                              }}
+                            />
                             <button
                               type="button"
-                              disabled={isEstimatingCalories || !newFoodName}
-                              onClick={handleEstimateDietCalories}
-                              className="h-8 px-3 rounded bg-white/[0.06] border border-white/10 text-zinc-300 hover:text-white hover:bg-white/10 text-xs font-bold disabled:opacity-50 transition cursor-pointer flex items-center gap-1.5 shrink-0"
+                              disabled={isAddingFood || !newFoodInput.trim()}
+                              onClick={() => handleAddDietItemWithAI(mealIdx)}
+                              className="h-9 px-4 rounded bg-emerald-400 text-black text-xs font-black hover:opacity-95 disabled:opacity-50 transition cursor-pointer flex items-center justify-center min-w-[80px]"
                             >
-                              {isEstimatingCalories ? "Estimando..." : "Estimar com IA 🤖"}
+                              {isAddingFood ? "..." : "Adicionar"}
                             </button>
                           </div>
-
-                          <div className="flex justify-end gap-2 text-[11px] pt-1">
+                          {isAddingFood && (
+                            <div className="text-[9px] text-emerald-400 pl-1 animate-pulse font-medium">
+                              🤖 Estimando calorias e formatando com IA...
+                            </div>
+                          )}
+                          <div className="flex justify-end pt-1">
                             <button
                               type="button"
+                              disabled={isAddingFood}
                               onClick={() => setActiveAddingMealIdx(null)}
-                              className="px-2.5 h-7 font-bold rounded border border-white/10 text-zinc-400 hover:text-white cursor-pointer"
+                              className="px-2.5 h-6 text-[10px] font-bold rounded border border-white/10 text-zinc-400 hover:text-white cursor-pointer"
                             >
                               Cancelar
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleAddDietItem(mealIdx)}
-                              disabled={!newFoodName}
-                              className="px-2.5 h-7 font-bold rounded bg-emerald-400 text-black cursor-pointer disabled:opacity-50"
-                            >
-                              Adicionar
                             </button>
                           </div>
                         </div>
@@ -2206,92 +2208,52 @@ function EditSheet({
                       type="button"
                       onClick={() => {
                         setActiveAddingMealIdx(999);
-                        setNewFoodName("");
-                        setNewFoodAmount("");
-                        setNewFoodCalories("");
+                        setNewFoodInput("");
                       }}
                       className="w-full h-9 rounded-lg border border-dashed border-white/10 hover:border-white/20 text-xs font-bold text-zinc-400 hover:text-white flex items-center justify-center gap-1.5 transition cursor-pointer"
                     >
                       <Plus size={14} /> Adicionar Alimento
                     </button>
                   ) : (
-                    <div className="bg-black/30 p-3 rounded-lg border border-white/5 space-y-2.5">
+                    <div className="bg-black/30 p-3 rounded-lg border border-white/5 space-y-2">
                       <div className="text-[11px] font-bold text-zinc-400 uppercase">Novo Alimento</div>
-                      <div className="grid grid-cols-2 gap-2">
-                        <label className="block col-span-2 sm:col-span-1">
-                          <span className="text-[10px] text-zinc-500 block mb-0.5">Nome do Alimento</span>
-                          <input
-                            type="text"
-                            value={newFoodName}
-                            onChange={(e) => setNewFoodName(e.target.value)}
-                            placeholder="Ex: Banana"
-                            className="w-full h-8 px-2 text-xs rounded bg-black/40 border border-white/10 text-white outline-none focus:border-emerald-400"
-                          />
-                        </label>
-                        <label className="block col-span-2 sm:col-span-1">
-                          <span className="text-[10px] text-zinc-500 block mb-0.5">Quantidade</span>
-                          <input
-                            type="text"
-                            value={newFoodAmount}
-                            onChange={(e) => setNewFoodAmount(e.target.value)}
-                            placeholder="Ex: 1 unidade"
-                            className="w-full h-8 px-2 text-xs rounded bg-black/40 border border-white/10 text-white outline-none focus:border-emerald-400"
-                          />
-                        </label>
-                      </div>
-
-                      <div className="flex items-end gap-2">
-                        <label className="flex-1">
-                          <span className="text-[10px] text-zinc-500 block mb-0.5">Calorias (kcal)</span>
-                          <input
-                            type="number"
-                            value={newFoodCalories}
-                            onChange={(e) => setNewFoodCalories(Number(e.target.value) || "")}
-                            placeholder="IA estima ou digite"
-                            className="w-full h-8 px-2 text-xs rounded bg-black/40 border border-white/10 text-white outline-none focus:border-emerald-400 font-bold text-emerald-300"
-                          />
-                        </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          disabled={isAddingFood}
+                          value={newFoodInput}
+                          onChange={(e) => setNewFoodInput(e.target.value)}
+                          placeholder="Ex: 150g de frango grelhado ou 1 banana"
+                          className="flex-1 h-9 px-3 text-xs rounded bg-black/40 border border-white/10 text-white outline-none focus:border-emerald-400"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              handleAddGeneralDietItemWithAI();
+                            }
+                          }}
+                        />
                         <button
                           type="button"
-                          disabled={isEstimatingCalories || !newFoodName}
-                          onClick={handleEstimateDietCalories}
-                          className="h-8 px-3 rounded bg-white/[0.06] border border-white/10 text-zinc-300 hover:text-white hover:bg-white/10 text-xs font-bold disabled:opacity-50 transition cursor-pointer flex items-center gap-1.5 shrink-0"
+                          disabled={isAddingFood || !newFoodInput.trim()}
+                          onClick={handleAddGeneralDietItemWithAI}
+                          className="h-9 px-4 rounded bg-emerald-400 text-black text-xs font-black hover:opacity-95 disabled:opacity-50 transition cursor-pointer flex items-center justify-center min-w-[80px]"
                         >
-                          {isEstimatingCalories ? "Estimando..." : "Estimar com IA 🤖"}
+                          {isAddingFood ? "..." : "Adicionar"}
                         </button>
                       </div>
-
-                      <div className="flex justify-end gap-2">
+                      {isAddingFood && (
+                        <div className="text-[10px] text-emerald-400 pl-1 animate-pulse font-medium">
+                          🤖 Estimando calorias e formatando com IA...
+                        </div>
+                      )}
+                      <div className="flex justify-end pt-1">
                         <button
                           type="button"
+                          disabled={isAddingFood}
                           onClick={() => setActiveAddingMealIdx(null)}
-                          className="px-3 h-8 text-xs font-bold rounded border border-white/10 text-zinc-400 hover:text-white cursor-pointer"
+                          className="px-3 h-7 text-[10px] font-bold rounded border border-white/10 text-zinc-400 hover:text-white cursor-pointer"
                         >
                           Cancelar
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!newFoodName) return;
-                            const next = { ...details };
-                            if (!next.dietItems) next.dietItems = [];
-                            const isDone = item.status === "done";
-                            next.dietItems.push({
-                              name: newFoodName,
-                              amount: newFoodAmount || "1 dose",
-                              calories: Number(newFoodCalories) || 0,
-                              done: isDone ? true : undefined
-                            });
-                            setDetails(next);
-                            setNewFoodName("");
-                            setNewFoodAmount("");
-                            setNewFoodCalories("");
-                            setActiveAddingMealIdx(null);
-                          }}
-                          disabled={!newFoodName}
-                          className="px-3 h-8 text-xs font-bold rounded bg-emerald-400 text-black cursor-pointer disabled:opacity-50"
-                        >
-                          Adicionar
                         </button>
                       </div>
                     </div>
