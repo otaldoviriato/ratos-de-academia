@@ -40,6 +40,7 @@ import {
   getPendingCountAction,
   getUserProfileAction,
   getOnboardingAdjustmentDataAction,
+  resetOnboardingAction,
   getUserRoutineAction,
   getStatisticsDataAction,
   UserProfile,
@@ -249,6 +250,18 @@ export default function Home() {
     });
   };
 
+  const handleResetOnboarding = async () => {
+    startTransition(async () => {
+      try {
+        await resetOnboardingAction();
+        setUserProfile(null);
+        setIsOnboarded(false);
+      } catch (err) {
+        console.error("Erro ao resetar onboarding:", err);
+      }
+    });
+  };
+
   useEffect(() => {
     if (isOnboarded) {
       loadData();
@@ -390,7 +403,15 @@ export default function Home() {
                       avatarBox: "h-5 w-5"
                     }
                   }}
-                />
+                >
+                  <UserButton.MenuItems>
+                    <UserButton.Action
+                      label="Resetar onboarding"
+                      labelIcon={<RotateCw className="h-4 w-4" />}
+                      onClick={handleResetOnboarding}
+                    />
+                  </UserButton.MenuItems>
+                </UserButton>
               </div>
             </div>
           </header>
@@ -435,7 +456,15 @@ export default function Home() {
                             avatarBox: "h-7 w-7"
                           }
                         }}
-                      />
+                      >
+                        <UserButton.MenuItems>
+                          <UserButton.Action
+                            label="Resetar onboarding"
+                            labelIcon={<RotateCw className="h-4 w-4" />}
+                            onClick={handleResetOnboarding}
+                          />
+                        </UserButton.MenuItems>
+                      </UserButton>
                     </div>
                   </div>
                 </header>

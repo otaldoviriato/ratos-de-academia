@@ -845,6 +845,29 @@ export async function cancelOnboardingAdjustmentAction(): Promise<void> {
   );
 }
 
+// Reinicia o onboarding do zero sem apagar a rotina ativa até o usuário salvar a nova.
+export async function resetOnboardingAction(): Promise<void> {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Não autorizado");
+
+  const db = await getDb();
+
+  await db.collection("profiles").updateOne(
+    { userId },
+    {
+      $set: {
+        isOnboarded: false,
+        updatedAt: new Date().toISOString()
+      },
+      $unset: {
+        onboardingState: ""
+      }
+    }
+  );
+
+  revalidatePath("/");
+}
+
 
 // Conclui o onboarding salvando o perfil e os planos associados no banco de dados
 export async function completeOnboardingAction(
