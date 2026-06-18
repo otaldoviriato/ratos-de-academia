@@ -350,17 +350,64 @@ export default function Home() {
     // Contagem rápida de musculação e cardio concluídos hoje para o resumo
     let workoutsDone = 0;
     let cardioMin = 0;
+    
+    // Cálculo calórico
+    let caloriesConsumed = 0;
+    let workoutCaloriesBurned = 0;
+    let cardioCaloriesBurned = 0;
+
+    const tmb = userProfile?.biometrics?.tmb || (userProfile?.gender === "masculino" ? 2000 : userProfile?.gender === "feminino" ? 1600 : 1800);
+
     activities.forEach(a => {
+      // Consumo calórico da dieta (itens comidos)
+      if (a.type === "dieta") {
+        if (a.details.meals) {
+          a.details.meals.forEach(m => {
+            m.items.forEach(item => {
+              if (item.done === true) {
+                caloriesConsumed += (Number(item.calories) || 0);
+              }
+            });
+          });
+        } else if (a.details.dietItems) {
+          a.details.dietItems.forEach(item => {
+            if (item.done === true) {
+              caloriesConsumed += (Number(item.calories) || 0);
+            }
+          });
+        }
+      }
+      
+      // Gasto calórico com exercícios (se concluídos)
       if (a.done) {
-        if (a.type === "musculacao") workoutsDone++;
+        if (a.type === "musculacao") {
+          workoutsDone++;
+          workoutCaloriesBurned += 350; // valor padrão para treino de musculação
+        }
         if (a.type === "aerobico" && a.details.aerobic) {
-          cardioMin += a.details.aerobic.duration;
+          const duration = Number(a.details.aerobic.duration) || 0;
+          cardioMin += duration;
+          cardioCaloriesBurned += duration * 7; // estimativa padrão de 7 kcal por minuto de cardio
         }
       }
     });
 
-    return { total, completed, pct, workoutsDone, cardioMin };
-  }, [activities]);
+    const caloriesBurnedTotal = tmb + workoutCaloriesBurned + cardioCaloriesBurned;
+    const calorieBalance = caloriesConsumed - caloriesBurnedTotal;
+
+    return { 
+      total, 
+      completed, 
+      pct, 
+      workoutsDone, 
+      cardioMin,
+      tmb,
+      caloriesConsumed,
+      caloriesBurnedExercises: workoutCaloriesBurned + cardioCaloriesBurned,
+      caloriesBurnedTotal,
+      calorieBalance
+    };
+  }, [activities, userProfile]);
 
   const selectedLabel = useMemo(() => formatDateLabel(selectedDate), [selectedDate]);
 
@@ -557,6 +604,59 @@ export default function Home() {
                       className="h-2 rounded-full bg-acid transition-all duration-300" 
                       style={{ width: `${stats.pct}%` }}
                     />
+                  </div>
+                </section>
+
+                {/* Balanço Calórico */}
+                <section className={`mt-3 shrink-0 rounded-lg border p-3 transition-colors duration-300 ${activeTab !== "hoje" ? "hidden md:block" : ""} ${
+                  stats.calorieBalance < 0
+                    ? "border-acid/20 bg-acid/5"
+                    : stats.calorieBalance > 0
+                      ? "border-ember/20 bg-ember/5"
+                      : "border-white/10 bg-white/[0.045]"
+                }`}>
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-medium text-zinc-400">Balanço Calórico</p>
+                      <p className={`text-lg font-black flex items-center gap-1.5 ${
+                        stats.calorieBalance < 0
+                          ? "text-acid"
+                          : stats.calorieBalance > 0
+                            ? "text-ember"
+                            : "text-white"
+                      }`}>
+                        {stats.calorieBalance > 0 ? `+${stats.calorieBalance}` : stats.calorieBalance} kcal
+                        <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-black/25">
+                          {stats.calorieBalance < 0
+                            ? "Déficit"
+                            : stats.calorieBalance > 0
+                              ? "Superávit"
+                              : "Equilibrado"}
+                        </span>
+                      </p>
+                    </div>
+                    <div className="flex gap-4">
+                      <div className="text-right">
+                        <div className="text-[10px] text-zinc-500 font-bold uppercase flex items-center justify-end gap-1">
+                          <Utensils size={10} className="text-cyan" /> Consumo
+                        </div>
+                        <div className="text-xs font-black text-zinc-200">{stats.caloriesConsumed} kcal</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-[10px] text-zinc-500 font-bold uppercase flex items-center justify-end gap-1">
+                          <Flame size={10} className="text-ember" /> Gasto
+                        </div>
+                        <div className="text-xs font-black text-zinc-200" title={`TMB: ${stats.tmb} kcal | Exercícios: ${stats.caloriesBurnedExercises} kcal`}>
+                          {stats.caloriesBurnedTotal} kcal
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Detalhamento sutil do Gasto (TMB vs Exercício) */}
+                  <div className="mt-2.5 pt-2 border-t border-white/5 flex justify-between items-center text-[10px] text-zinc-500 font-medium">
+                    <span>Taxa Basal (TMB): {stats.tmb} kcal</span>
+                    <span>Exercícios: {stats.caloriesBurnedExercises} kcal</span>
                   </div>
                 </section>
               </div>
