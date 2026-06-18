@@ -451,8 +451,8 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
       {/* Header Superior para Desktop */}
       <header className="hidden sm:flex items-center justify-between w-full max-w-[430px] md:max-w-5xl px-5 py-3 bg-graphite/60 border border-white/10 rounded-2xl backdrop-blur-xl mb-4 shadow-xl shrink-0 relative z-10">
         <div className="flex items-center gap-2.5">
-          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-tr from-acid to-emerald-900 border border-acid/20 shadow-md shadow-acid/15">
-            <Dumbbell className="w-4.5 h-4.5 text-white" />
+          <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-black/30">
+            <img src="/logo.png" alt="Ratos de Academia" className="h-full w-full object-contain" />
           </div>
           <div>
             <h2 className="font-black text-[11px] tracking-widest text-white leading-none">
@@ -498,29 +498,30 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
       <section className="relative mx-auto flex h-full w-full max-w-[430px] md:max-w-5xl flex-col overflow-hidden bg-coal shadow-2xl shadow-black/50 sm:h-[800px] md:h-[750px] sm:max-h-[85dvh] sm:rounded-[2rem] sm:border sm:border-white/10">
         
         {/* Header Superior Interno (apenas visível no Mobile) */}
-        <header className="flex sm:hidden items-center justify-between px-6 py-4 border-b border-white/10 bg-graphite/60 backdrop-blur-xl shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-tr from-acid to-emerald-900 border border-acid/20 shadow-lg shadow-acid/15">
-              <Dumbbell className="w-5 h-5 text-white" />
+        <header className="flex sm:hidden items-center justify-between gap-3 px-4 py-3 border-b border-white/10 bg-graphite/70 backdrop-blur-xl shrink-0">
+          <div className="flex min-w-0 flex-1 items-center gap-2.5">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-black/30">
+              <img src="/logo.png" alt="Ratos de Academia" className="h-full w-full object-contain" />
             </div>
-            <div>
-              <h1 className="font-extrabold text-lg tracking-tight bg-gradient-to-r from-acid to-emerald-400 bg-clip-text text-transparent">
+            <div className="min-w-0">
+              <h1 className="truncate font-black text-[13px] leading-tight tracking-wide text-acid">
                 RATOS DE ACADEMIA
               </h1>
-              <p className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider">
+              <p className="truncate text-[9px] text-zinc-500 font-bold uppercase tracking-wide">
                 Onboarding Inteligente
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 items-center gap-2">
             {/* Botão Ver Rotina */}
             <button
               type="button"
               onClick={() => setShowPreview(true)}
-              className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-acid bg-acid/10 hover:bg-acid/20 border border-acid/25 rounded-lg transition-all cursor-pointer animate-pulse"
+              className="flex h-9 items-center gap-1.5 rounded-xl border border-acid/25 bg-acid/10 px-2.5 text-[11px] font-black text-acid transition-all hover:bg-acid/20 cursor-pointer"
             >
-              Ver Rotina
+              <Activity className="h-3.5 w-3.5" />
+              Rotina
             </button>
 
             {(profile?.isOnboarded || isAdjustmentMode) && (
@@ -532,7 +533,7 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
               </button>
             )}
 
-            <div className="flex items-center justify-center w-9 h-9 rounded-lg border border-white/10 bg-zinc-900/60 hover:bg-zinc-900 transition-colors shrink-0 cursor-pointer">
+            <div className="flex items-center justify-center w-9 h-9 rounded-xl border border-white/10 bg-zinc-900/60 hover:bg-zinc-900 transition-colors shrink-0 cursor-pointer">
               <UserButton
                 appearance={{
                   elements: {
