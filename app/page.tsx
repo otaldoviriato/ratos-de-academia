@@ -1543,7 +1543,7 @@ function EditSheet({
                       type="text"
                       value={ex.load}
                       onChange={(e) => handleWorkoutLoadChange(idx, e.target.value)}
-                      placeholder="Carga"
+                      placeholder="kg"
                       className="w-16 h-8 text-center text-xs font-bold rounded bg-black/40 border border-white/10 text-white outline-none focus:border-acid"
                     />
                     <div className="flex items-center gap-1.5">
@@ -2353,7 +2353,7 @@ function AddSheet({
                         type="text"
                         value={ex.load}
                         onChange={(e) => updateExerciseField(idx, "load", e.target.value)}
-                        placeholder="Carga"
+                        placeholder="kg"
                         className="w-14 h-8 text-center text-xs rounded bg-black/40 border border-white/10 text-white outline-none focus:border-acid"
                       />
                       <button

@@ -48,6 +48,7 @@ SEQUÊNCIA DE ETAPAS (UMA PERGUNTA POR VEZ):
 - ETAPA 5 (TREINO):
   1. Pergunte quantos dias ele pretende treinar por semana.
   2. Proponha a divisão de treinos (ABCD/ABCDE) detalhada de forma simples. Pergunte se ele concorda.
+  3. IMPORTANTE: Ao preencher o campo "load" dos exercícios de musculação em "workouts", use sempre valores em kg (ex: "20kg", "35kg", "50kg"). Nunca use percentual de 1RM (como "70% 1RM") nem expressões subjetivas (como "moderada", "pesada").
 - ETAPA 6 (CARDIO):
   1. Pergunte se ele gostaria de fazer exercícios aeróbicos (tipo, duração, intensidade).
 - ETAPA 7 (MEDICAMENTOS):
@@ -57,6 +58,7 @@ SEQUÊNCIA DE ETAPAS (UMA PERGUNTA POR VEZ):
 
 REGRAS DO "previewData":
 - Só inclua os dados no "previewData" à medida que forem combinados e confirmados. Não adivinhe ou crie dados futuros.
+- No campo "load" de "workouts", defina sempre a carga em kg (ex: "15kg", "25kg", "40kg"). Nunca use termos subjetivos ou percentuais de 1RM.
 - Siga estritamente esta estrutura para o "previewData":
   {
     "profile": {
@@ -76,7 +78,7 @@ REGRAS DO "previewData":
       "items": Array<{ "name": string, "calories": number, "amount": string }> 
     }>,
     "workouts": {
-      [letter: string]: Array<{ "name": string, "series": number, "reps": number, "load": string }>
+      [letter: string]: Array<{ "name": string, "series": number, "reps": number, "load": string }> // ex: "20kg", "35kg"
     },
     "aerobic": {
       "name": string,
