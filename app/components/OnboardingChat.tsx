@@ -393,9 +393,6 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
 
       if (data.previewData) {
         setPreviewData(mergedPreview);
-        if (didRoutinePresentationChange(previewData, mergedPreview)) {
-          setShowPreview(true);
-        }
       }
 
       if (data.finished !== undefined) {
@@ -492,9 +489,6 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
 
         if (data.previewData) {
           setPreviewData(mergedPreview);
-          if (didRoutinePresentationChange(previewData, mergedPreview)) {
-            setShowPreview(true);
-          }
         }
 
         if (data.finished !== undefined) {
