@@ -263,7 +263,8 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
           messages: updatedMessages.filter(m => m.role !== "system" || m.content.startsWith("[Sistema")),
-          currentPreviewData: previewData
+          currentPreviewData: previewData,
+          isAdjustment: isAdjustmentMode
         }),
       });
 
@@ -353,7 +354,8 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ 
             messages: historyToSend,
-            currentPreviewData: previewData
+            currentPreviewData: previewData,
+            isAdjustment: isAdjustmentMode
           }),
         });
 

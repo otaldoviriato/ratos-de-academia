@@ -437,7 +437,10 @@ function formatWorkoutMessage(templates: WorkoutTemplate[]) {
   ].join("\n");
 }
 
-function normalizeWorkoutPlan(data: OnboardingResponse, currentPreviewData: any, messages: ChatMessage[]) {
+function normalizeWorkoutPlan(data: OnboardingResponse, currentPreviewData: any, messages: ChatMessage[], isAdjustment?: boolean) {
+  if (isAdjustment) {
+    return data;
+  }
   const previewData = mergePreviewData(currentPreviewData, data.previewData || {});
   const workouts = previewData.workouts;
 
@@ -524,14 +527,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Não autorizado" }, { status: 401 });
     }
 
-    const { messages, currentPreviewData } = await req.json();
+    const { messages, currentPreviewData, isAdjustment } = await req.json();
 
     if (!messages || !Array.isArray(messages)) {
       return NextResponse.json({ error: "Histórico de mensagens inválido" }, { status: 400 });
     }
     const chatMessages = messages as ChatMessage[];
 
-    if (isWorkoutPlanRequest(chatMessages, currentPreviewData)) {
+    if (!isAdjustment && isWorkoutPlanRequest(chatMessages, currentPreviewData)) {
       return NextResponse.json(buildDeterministicWorkoutResponse(currentPreviewData, chatMessages));
     }
 
@@ -631,6 +634,14 @@ Retorne apenas o JSON puro, sem blocos de código markdown como \`\`\`json.`;
 Você DEVE usar esses dados como contexto clínico/prático: perfil, tempo de treino, experiência derivada, dias de treino, objetivo, biometria, TMB, gordura corporal, massa muscular, dieta, treinos e aeróbico. Também DEVE incluir integralmente esses dados nas chaves correspondentes do seu objeto "previewData" de retorno, realizando apenas as edições, inclusões ou exclusões solicitadas explicitamente pelo usuário na conversa. Nunca devolva chaves de treinos ("workouts"), dieta ("diet"), cardio ("aerobic"), perfil ("profile") ou biometria ("biometrics") vazias ou zeradas se esses dados já existiam no preview anterior e o usuário não pediu para excluí-los.`;
     }
 
+    if (isAdjustment) {
+      finalSystemPrompt += `\n\nATENÇÃO: Você está em MODO DE AJUSTE da rotina atual do usuário. O onboarding já foi finalizado anteriormente.
+Por isso:
+1. NÃO siga a "SEQUÊNCIA DE ETAPAS" de onboarding (gênero, idade, bioimpedância, etc.). Ignore perguntas de dados básicos ou de confirmação de onboarding.
+2. Foque única e exclusivamente em atender e aplicar o ajuste pontual solicitado pelo usuário no diálogo (por exemplo, ajustar um alimento de uma refeição, adicionar um exercício, trocar uma carga).
+3. Mantenha TODOS os outros dados (workouts, diet, profile, biometrics, aerobic) exatamente iguais aos dados do currentPreviewData fornecido, modificando APENAS o item que foi solicitado diretamente. Se o usuário pediu ajuste na DIETA, NÃO altere nada nos TREINOS (workouts). Se o usuário pediu ajuste no TREINO, NÃO altere nada na DIETA.`;
+    }
+
     const response = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       response_format: { type: "json_object" },
@@ -645,7 +656,8 @@ Você DEVE usar esses dados como contexto clínico/prático: perfil, tempo de tr
     const data = normalizeWorkoutPlan(
       normalizeDietOrder(JSON.parse(contentText) as OnboardingResponse),
       currentPreviewData,
-      chatMessages
+      chatMessages,
+      isAdjustment
     );
 
     return NextResponse.json(data);
