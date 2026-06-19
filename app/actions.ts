@@ -1789,3 +1789,157 @@ Retorne apenas o JSON puro, sem blocos de código markdown.`
   }
 }
 
+// Retorna as atividades de múltiplos dias específicos de uma só vez (otimização de banco de dados/rede)
+export async function getDaysActivities(dateStrings: string[]): Promise<Record<string, ActivityItem[]>> {
+  const { userId } = await auth();
+  if (!userId) throw new Error("Não autorizado");
+
+  const db = await getDb();
+
+  // Busca planos
+  const dbPlans = await db.collection("plans")
+    .find({ userId, isDeleted: { $ne: true } })
+    .toArray();
+
+  const plans = dbPlans.map((p) => ({
+    ...p,
+    _id: p._id.toString(),
+  })) as unknown as Plan[];
+
+  // Busca ocorrências para as datas solicitadas
+  const dbOccurrences = await db.collection("occurrences")
+    .find({ userId, date: { $in: dateStrings } })
+    .toArray();
+
+  const occurrences = dbOccurrences.map((o) => ({
+    ...o,
+    _id: o._id.toString(),
+    planId: o.planId?.toString(),
+  })) as unknown as Occurrence[];
+
+  const project = await db.collection("projects").findOne({
+    userId,
+    isDeleted: { $ne: true },
+    status: "active"
+  }) as unknown as Project | null;
+
+  const result: Record<string, ActivityItem[]> = {};
+
+  for (const dateStr of dateStrings) {
+    const activities: ActivityItem[] = [];
+    const dailyOccurrences = occurrences.filter((o) => o.date === dateStr);
+
+    for (const plan of plans) {
+      const { applies, routineLetter } = planAppliesToDate(plan, dateStr);
+
+      if (applies) {
+        const occurrence = dailyOccurrences.find((o) => o.planId === plan._id);
+
+        let status: "pending" | "done" | "skipped" = "pending";
+        let details: PlanDetails = JSON.parse(JSON.stringify(plan.details));
+
+        if (plan.type === "musculacao" && routineLetter) {
+          details.routine = routineLetter;
+          if (details.workouts && details.workouts[routineLetter]) {
+            const originalExercises = details.workouts[routineLetter];
+            details.workouts = {
+              [routineLetter]: originalExercises.map(ex => ({ ...ex, done: ex.done !== undefined ? ex.done : undefined }))
+            };
+          }
+        }
+
+        if (occurrence) {
+          status = occurrence.status;
+          if (occurrence.isOverride && occurrence.details) {
+            details = JSON.parse(JSON.stringify(occurrence.details));
+          } else if (occurrence.status === "done") {
+            if (occurrence.details) {
+              details = JSON.parse(JSON.stringify(occurrence.details));
+            } else {
+              details = markAllItemsAsDone(details, plan.type, details.routine || routineLetter);
+            }
+          }
+        }
+
+        activities.push({
+          id: occurrence?._id || plan._id!,
+          planId: plan._id,
+          occurrenceId: occurrence?._id,
+          type: plan.type,
+          title: plan.type === "musculacao" && details.routine ? `${plan.title} - Treino ${details.routine}` : plan.title,
+          tag: formatFrequencyTag(plan),
+          done: status === "done",
+          status,
+          details,
+        });
+      }
+    }
+
+    if (project) {
+      const [y1, m1, d1] = project.startDate.split("-").map(Number);
+      const [y2, m2, d2] = dateStr.split("-").map(Number);
+      const date1 = new Date(Date.UTC(y1, m1 - 1, d1));
+      const date2 = new Date(Date.UTC(y2, m2 - 1, d2));
+      const diffTime = date2.getTime() - date1.getTime();
+      const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+      if (diffDays >= 0 && diffDays <= project.durationDays) {
+        let isMeasurementDay = false;
+        switch (project.measurementFrequency) {
+          case "daily":
+            isMeasurementDay = true;
+            break;
+          case "weekly":
+            isMeasurementDay = diffDays % 7 === 0;
+            break;
+          case "fortnightly":
+            isMeasurementDay = diffDays % 15 === 0;
+            break;
+          case "monthly":
+            isMeasurementDay = diffDays % 30 === 0;
+            break;
+        }
+
+        if (isMeasurementDay) {
+          const occurrence = dailyOccurrences.find((o) => o.type === "bioimpedancia" && !o.planId);
+          let status: "pending" | "done" | "skipped" = "pending";
+          let details: PlanDetails = { bio: {} };
+
+          if (occurrence) {
+            status = occurrence.status;
+            details = occurrence.details || { bio: {} };
+          } else {
+            const measurement = project.measurements?.find((m) => m.date === dateStr);
+            if (measurement) {
+              status = "done";
+              details = {
+                bio: {
+                  weight: measurement.weight,
+                  fatPct: measurement.fatPct,
+                  muscleMass: measurement.muscleMass,
+                  done: true
+                }
+              };
+            }
+          }
+
+          activities.push({
+            id: occurrence?._id || `project-measurement-${project._id}-${dateStr}`,
+            occurrenceId: occurrence?._id,
+            type: "bioimpedancia",
+            title: project.metricType === "composition" ? "Medição de Composição" : "Medição de Peso",
+            tag: "Projeto",
+            done: status === "done",
+            status,
+            details,
+          });
+        }
+      }
+    }
+
+    result[dateStr] = activities;
+  }
+
+  return result;
+}
+

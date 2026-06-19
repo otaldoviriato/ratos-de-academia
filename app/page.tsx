@@ -35,6 +35,7 @@ import {
 import { useEffect, useMemo, useState, useTransition, useRef } from "react";
 import {
   getDailyActivities,
+  getDaysActivities,
   toggleActivity,
   savePlanAction,
   updateActivityOccurrence,
@@ -128,6 +129,61 @@ const addOptions: Array<{
   { type: "sangue", title: "Exames de Sangue", text: "Sangue e recorrência", icon: TestTube2 },
   { type: "dieta", title: "Dieta", text: "Refeições e calorias", icon: Utensils }
 ];
+
+const CACHE_KEY = "ratos-de-academia:activities-cache";
+
+// Retorna as datas de segunda a domingo da semana da dataStr
+function getWeekDates(dateStr: string): string[] {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const baseDate = new Date(Date.UTC(y, m - 1, d));
+  const dayOfWeek = baseDate.getUTCDay(); // 0=Dom, 1=Seg, ...
+  
+  // Segunda-feira como primeiro dia (1). Se for Domingo (0), recua 6 dias.
+  const mondayDiff = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+  const dates: string[] = [];
+  
+  for (let i = 0; i < 7; i++) {
+    const curr = new Date(baseDate);
+    curr.setUTCDate(baseDate.getUTCDate() + mondayDiff + i);
+    const yStr = curr.getUTCFullYear();
+    const mStr = String(curr.getUTCMonth() + 1).padStart(2, "0");
+    const dStr = String(curr.getUTCDate()).padStart(2, "0");
+    dates.push(`${yStr}-${mStr}-${dStr}`);
+  }
+  return dates;
+}
+
+function getCachedActivities(): Record<string, ActivityItem[]> {
+  if (typeof window === "undefined") return {};
+  try {
+    const data = localStorage.getItem(CACHE_KEY);
+    return data ? JSON.parse(data) : {};
+  } catch (e) {
+    console.error("Erro ao ler cache do localStorage:", e);
+    return {};
+  }
+}
+
+function setCachedActivities(activitiesMap: Record<string, ActivityItem[]>) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify(activitiesMap));
+  } catch (e) {
+    console.error("Erro ao salvar cache no localStorage:", e);
+  }
+}
+
+function saveToLocalStorageCache(dateStr: string, items: ActivityItem[]) {
+  const cache = getCachedActivities();
+  cache[dateStr] = items;
+  setCachedActivities(cache);
+}
+
+function clearCacheForDates(dates: string[]) {
+  const cache = getCachedActivities();
+  dates.forEach(d => delete cache[d]);
+  setCachedActivities(cache);
+}
 
 export default function Home() {
   const { isLoaded, isSignedIn, user } = useUser();
@@ -264,13 +320,34 @@ export default function Home() {
   }, [isSignedIn]);
 
   // Carrega dados da data selecionada e contagem de pendências
-  const loadData = () => {
+  const loadData = (forceRefresh = false) => {
     if (!isSignedIn || profileLoading || !isOnboarded) return;
+    
+    const weekDates = getWeekDates(selectedDate);
+    const cache = getCachedActivities();
+    
+    const hasAllWeekDatesInCache = weekDates.every(d => cache[d] !== undefined);
+    
+    if (!forceRefresh && hasAllWeekDatesInCache) {
+      setActivities(cache[selectedDate] || []);
+      getPendingCountAction()
+        .then((pendingData) => {
+          setPendingCount(pendingData.count);
+          setPendingDates(pendingData.pendingDates);
+        })
+        .catch((err) => {
+          console.error("Erro ao carregar pendências:", err);
+        });
+      return;
+    }
     
     startTransition(async () => {
       try {
-        const data = await getDailyActivities(selectedDate);
-        setActivities(data);
+        const weeklyData = await getDaysActivities(weekDates);
+        const updatedCache = { ...getCachedActivities(), ...weeklyData };
+        setCachedActivities(updatedCache);
+        
+        setActivities(weeklyData[selectedDate] || []);
         
         const pendingData = await getPendingCountAction();
         setPendingCount(pendingData.count);
@@ -357,8 +434,74 @@ export default function Home() {
     setSelectedDate(`${yStr}-${mStr}-${dStr}`);
   };
 
-  // Dá check global na atividade
+  // Dá check global na atividade (abordagem otimista)
   const handleToggleCheck = async (item: ActivityItem) => {
+    const originalActivities = [...activities];
+    
+    const newDone = !item.done;
+    const newStatus: "pending" | "done" | "skipped" = newDone ? "done" : "pending";
+    
+    const updatedActivities: ActivityItem[] = activities.map(act => {
+      if (act.id === item.id) {
+        let newDetails = { ...act.details };
+        const routineLetter = newDetails.routine;
+        
+        // Alinha sub-itens de acordo com o novo status
+        if (newDone) {
+          if (act.type === "musculacao" && routineLetter && newDetails.workouts?.[routineLetter]) {
+            newDetails.workouts[routineLetter] = newDetails.workouts[routineLetter].map(e => ({ ...e, done: true }));
+          } else if (act.type === "dieta") {
+            if (newDetails.meals) {
+              newDetails.meals = newDetails.meals.map(meal => ({
+                ...meal,
+                items: meal.items.map(it => ({ ...it, done: true }))
+              }));
+            } else if (newDetails.dietItems) {
+              newDetails.dietItems = newDetails.dietItems.map(it => ({ ...it, done: true }));
+            }
+          } else if (act.type === "aerobico" && newDetails.aerobic) {
+            newDetails.aerobic.done = true;
+          } else if (act.type === "bioimpedancia" && newDetails.bio) {
+            newDetails.bio.done = true;
+          } else if (act.type === "sangue" && newDetails.bloodExams) {
+            newDetails.bloodExams = newDetails.bloodExams.map(it => ({ ...it, done: true }));
+          }
+        } else {
+          if (act.type === "musculacao" && routineLetter && newDetails.workouts?.[routineLetter]) {
+            newDetails.workouts[routineLetter] = newDetails.workouts[routineLetter].map(({ done, ...rest }) => rest);
+          } else if (act.type === "dieta") {
+            if (newDetails.meals) {
+              newDetails.meals = newDetails.meals.map(meal => ({
+                ...meal,
+                items: meal.items.map(({ done, ...rest }) => rest)
+              }));
+            } else if (newDetails.dietItems) {
+              newDetails.dietItems = newDetails.dietItems.map(({ done, ...rest }) => rest);
+            }
+          } else if (act.type === "aerobico" && newDetails.aerobic) {
+            delete newDetails.aerobic.done;
+          } else if (act.type === "bioimpedancia" && newDetails.bio) {
+            delete newDetails.bio.done;
+          } else if (act.type === "sangue" && newDetails.bloodExams) {
+            newDetails.bloodExams = newDetails.bloodExams.map(({ done, ...rest }) => rest);
+          }
+        }
+        
+        return {
+          ...act,
+          done: newDone,
+          status: newStatus,
+          details: newDetails
+        };
+      }
+      return act;
+    });
+
+    // 1. Atualização Otimista local
+    setActivities(updatedActivities);
+    saveToLocalStorageCache(selectedDate, updatedActivities);
+
+    // 2. Requisição em background
     try {
       await toggleActivity(
         selectedDate,
@@ -368,9 +511,19 @@ export default function Home() {
         item.details,
         item.type
       );
-      loadData();
+      
+      // Sincroniza silenciosamente em background
+      const freshDataMap = await getDaysActivities([selectedDate]);
+      const freshData = freshDataMap[selectedDate];
+      if (freshData) {
+        setActivities(freshData);
+        saveToLocalStorageCache(selectedDate, freshData);
+      }
     } catch (err) {
-      console.error("Erro ao alterar status:", err);
+      console.error("Erro ao alterar status (revertendo):", err);
+      // Reversão em caso de erro
+      setActivities(originalActivities);
+      saveToLocalStorageCache(selectedDate, originalActivities);
     }
   };
 
@@ -1300,7 +1453,7 @@ export default function Home() {
               dateStr={selectedDate} 
               onClose={() => {
                 setEditing(null);
-                loadData();
+                loadData(true);
               }} 
             />
           ) : null}
@@ -1309,7 +1462,7 @@ export default function Home() {
               dateStr={selectedDate}
               onClose={() => {
                 setShowAdd(false);
-                loadData();
+                loadData(true);
               }} 
             />
           ) : null}
@@ -1430,44 +1583,69 @@ function PlanRow({
           icon: Dumbbell,
           accent: "text-acid",
           desc: item.details.routine ? `Rotina ${item.details.routine}` : "Treino",
-          amount: `${item.details.workouts?.[item.details.routine || ""]?.length || 0} exercícios`
+          amount: `${item.details.workouts?.[item.details.routine || ""]?.length || 0} exercícios`,
+          calories: 350,
+          isBurn: true
         };
       case "aerobico":
+        const duration = item.details.aerobic?.duration || 0;
         return {
           icon: Timer,
           accent: "text-cyan",
           desc: item.details.aerobic?.name || "Cardio",
-          amount: `${item.details.aerobic?.duration || 0} min`
+          amount: `${duration} min`,
+          calories: duration * 7,
+          isBurn: true
         };
       case "bioimpedancia":
         return {
           icon: Activity,
           accent: "text-ember",
           desc: "Avaliação Bioimpedância",
-          amount: item.details.bio?.weight ? `${item.details.bio.weight}kg` : "Medição"
+          amount: item.details.bio?.weight ? `${item.details.bio.weight}kg` : "Medição",
+          calories: undefined,
+          isBurn: undefined
         };
       case "sangue":
         return {
           icon: TestTube2,
           accent: "text-rose-300",
           desc: "Exame de Sangue",
-          amount: `${item.details.bloodExams?.length || 0} itens`
+          amount: `${item.details.bloodExams?.length || 0} itens`,
+          calories: undefined,
+          isBurn: undefined
         };
 
       case "dieta":
         const mealsCount = item.details.meals?.length || item.details.dietItems?.length || 0;
+        let dietCalories = 0;
+        if (item.details.meals) {
+          item.details.meals.forEach(m => {
+            m.items.forEach(it => {
+              dietCalories += (Number(it.calories) || 0);
+            });
+          });
+        } else if (item.details.dietItems) {
+          item.details.dietItems.forEach(it => {
+            dietCalories += (Number(it.calories) || 0);
+          });
+        }
         return {
           icon: Utensils,
           accent: "text-emerald-300",
           desc: "Plano Alimentar",
-          amount: `${mealsCount} refeições`
+          amount: `${mealsCount} refeições`,
+          calories: dietCalories,
+          isBurn: false
         };
       default:
         return {
           icon: Dumbbell,
           accent: "text-acid",
           desc: "Atividade",
-          amount: ""
+          amount: "",
+          calories: undefined,
+          isBurn: undefined
         };
     }
   }, [item]);
@@ -1537,8 +1715,22 @@ function PlanRow({
             {item.tag}
           </span>
         </div>
-        <p className="mt-0.5 truncate text-xs text-zinc-400">
-          {isSkipped ? "Pulado hoje" : `${info.desc} - ${info.amount}`}
+        <p className="mt-0.5 truncate text-xs text-zinc-400 flex items-center gap-1">
+          {isSkipped ? (
+            <span>Pulado hoje</span>
+          ) : (
+            <>
+              <span className="truncate">{info.desc} - {info.amount}</span>
+              {info.calories !== undefined && info.calories > 0 && (
+                <>
+                  <span className="text-zinc-600 font-normal px-0.5">•</span>
+                  <span className={info.isBurn ? "text-cyan-400 font-semibold" : "text-emerald-400 font-semibold"}>
+                    {info.isBurn ? "-" : "+"}{info.calories} kcal
+                  </span>
+                </>
+              )}
+            </>
+          )}
         </p>
       </div>
       {renderStatusIndicator()}
