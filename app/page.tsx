@@ -3966,10 +3966,10 @@ function ProjectCreationForm({
                 className="w-full h-full object-cover scale-x-[-1] scale-110" 
               />
             </div>
-            <div className="px-4 py-3 rounded-2xl bg-zinc-900/95 border border-white/5 rounded-tl-none flex items-center gap-1 h-9 min-w-[50px] justify-center">
-              <span className="w-1.5 h-1.5 rounded-full bg-acid animate-bounce"></span>
-              <span className="w-1.5 h-1.5 rounded-full bg-acid animate-bounce [animation-delay:150ms]"></span>
-              <span className="w-1.5 h-1.5 rounded-full bg-acid animate-bounce [animation-delay:300ms]"></span>
+            <div className="px-4 py-3.5 rounded-2xl bg-zinc-900/95 border border-white/5 rounded-tl-none flex items-center gap-1.5 h-10 min-w-[56px] justify-center">
+              <span className="w-2 h-2 rounded-full bg-acid inline-block typing-dot" style={{ animationDelay: "0ms" }} />
+              <span className="w-2 h-2 rounded-full bg-acid inline-block typing-dot" style={{ animationDelay: "150ms" }} />
+              <span className="w-2 h-2 rounded-full bg-acid inline-block typing-dot" style={{ animationDelay: "300ms" }} />
             </div>
           </div>
         )}
