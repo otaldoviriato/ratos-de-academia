@@ -1,17 +1,4 @@
 @import "tailwindcss";
-@config "../tailwind.config.ts";
-
-@theme {
-  --color-coal: #07090d;
-  --color-graphite: #10141d;
-  --color-iron: #1a202c;
-  --color-acid: #b6f348;
-  --color-ember: #ff6b35;
-  --color-cyan: #52d6ff;
-
-  --shadow-glow: 0 0 70px rgba(182, 243, 72, 0.14);
-  --shadow-ember: 0 0 45px rgba(255, 107, 53, 0.18);
-}
 
 :root {
   color-scheme: dark;

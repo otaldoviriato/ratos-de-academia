@@ -384,6 +384,28 @@ export default function Home() {
     });
   };
 
+  const handleOnboardingComplete = async () => {
+    // 1. Limpa o cache local e do localStorage
+    setCachedActivities({});
+
+    // 2. Busca o perfil do usuário atualizado no banco
+    try {
+      const profile = await getUserProfileAction();
+      setUserProfile(profile);
+    } catch (err) {
+      console.error("Erro ao carregar perfil pós onboarding/ajustes:", err);
+    }
+
+    // 3. Recarrega a rotina do usuário
+    await loadRoutineData();
+
+    // 4. Marca o onboarding como concluído para exibir a tela inicial
+    setIsOnboarded(true);
+
+    // 5. Força a recarga das atividades de hoje do banco
+    loadData(true);
+  };
+
   useEffect(() => {
     if (isOnboarded) {
       loadData();
@@ -610,7 +632,7 @@ export default function Home() {
       {!isSignedIn ? (
         <LoginScreen />
       ) : !isOnboarded ? (
-        <OnboardingChat profile={userProfile} onComplete={() => setIsOnboarded(true)} />
+        <OnboardingChat profile={userProfile} onComplete={handleOnboardingComplete} />
       ) : (
         <main className="min-h-dvh overflow-hidden bg-coal text-zinc-50 sm:flex sm:flex-col sm:items-center sm:justify-center sm:p-6">
           <div className="subtle-grid fixed inset-0 opacity-25" />
@@ -4159,9 +4181,9 @@ function ProjectCreationForm({
               />
             </div>
             <div className="px-4 py-3.5 rounded-2xl bg-zinc-900/95 border border-white/5 rounded-tl-none flex items-center gap-1.5 h-10 min-w-[56px] justify-center">
-              <div className="w-1.5 h-1.5 rounded-full bg-acid animate-bounce" style={{ animationDelay: "0ms" }} />
-              <div className="w-1.5 h-1.5 rounded-full bg-acid animate-bounce" style={{ animationDelay: "150ms" }} />
-              <div className="w-1.5 h-1.5 rounded-full bg-acid animate-bounce" style={{ animationDelay: "300ms" }} />
+              <div className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ backgroundColor: "#b6f348", animationDelay: "0ms" }} />
+              <div className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ backgroundColor: "#b6f348", animationDelay: "150ms" }} />
+              <div className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ backgroundColor: "#b6f348", animationDelay: "300ms" }} />
             </div>
           </div>
         )}

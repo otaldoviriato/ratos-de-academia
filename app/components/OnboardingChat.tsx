@@ -20,6 +20,13 @@ import {
 import { UserButton } from "@clerk/nextjs";
 import { completeOnboardingAction, saveOnboardingProgressAction, cancelOnboardingAdjustmentAction, resetOnboardingAction, Plan, UserProfile } from "../actions";
 
+function getLocalDateStr(date: Date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 function normalizeText(value: string) {
   return value
     .normalize("NFD")
@@ -555,7 +562,7 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
           type: "dieta",
           title: "Plano Alimentar Inteligente",
           frequency: { type: "daily" },
-          startDate: new Date().toISOString().split("T")[0],
+          startDate: getLocalDateStr(new Date()),
           details: {
             meals: sortDietMeals(previewData.diet)
           }
@@ -573,7 +580,7 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
             rotationRoutine: letters,
             rotationDays: getTrainingDays(previewData.profile?.trainingDaysPerWeek)
           },
-          startDate: new Date().toISOString().split("T")[0],
+          startDate: getLocalDateStr(new Date()),
           details: {
             routine: letters[0],
             workouts: previewData.workouts
@@ -587,7 +594,7 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
           type: "aerobico",
           title: `Aeróbico: ${previewData.aerobic.name}`,
           frequency: { type: "daily" },
-          startDate: new Date().toISOString().split("T")[0],
+          startDate: getLocalDateStr(new Date()),
           details: {
             aerobic: {
               name: previewData.aerobic.name,
@@ -604,7 +611,7 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
           type: "bioimpedancia",
           title: "Acompanhamento Antropométrico",
           frequency: { type: "custom", daysOfWeek: [1] }, // Toda segunda padrão
-          startDate: new Date().toISOString().split("T")[0],
+          startDate: getLocalDateStr(new Date()),
           details: {
             bio: {
               weight: previewData.biometrics.weight,
@@ -667,12 +674,26 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
             Ver Rotina
           </button>
 
+          {isAdjustmentMode && (
+            <button
+              onClick={handleSaveOnboarding}
+              disabled={isSaving}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-black text-black bg-acid hover:bg-opacity-90 rounded-lg transition-all cursor-pointer"
+            >
+              {isSaving ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Check className="w-3.5 h-3.5" />
+              )}
+              Confirmar Ajustes
+            </button>
+          )}
           {(profile?.isOnboarded || isAdjustmentMode) && (
             <button
               onClick={isAdjustmentMode ? handleCancelAdjustment : onComplete}
               className="px-3 py-1.5 text-xs font-bold text-zinc-400 hover:text-zinc-200 bg-zinc-900 hover:bg-zinc-800 border border-white/10 rounded-lg transition-all cursor-pointer"
             >
-              Voltar
+              {isAdjustmentMode ? "Descartar" : "Voltar"}
             </button>
           )}
           <div className="grid h-8 w-8 place-items-center rounded-lg border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] transition-colors cursor-pointer">
@@ -725,12 +746,26 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
               Rotina
             </button>
 
+            {isAdjustmentMode && (
+              <button
+                onClick={handleSaveOnboarding}
+                disabled={isSaving}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-black text-black bg-acid hover:bg-opacity-90 rounded-lg transition-all cursor-pointer"
+              >
+                {isSaving ? (
+                  <Loader2 className="w-3 w-3 animate-spin" />
+                ) : (
+                  <Check className="w-3 w-3" />
+                )}
+                Confirmar
+              </button>
+            )}
             {(profile?.isOnboarded || isAdjustmentMode) && (
               <button
                 onClick={isAdjustmentMode ? handleCancelAdjustment : onComplete}
-                className="px-3 py-1.5 text-xs font-bold text-zinc-400 hover:text-zinc-200 bg-zinc-900 hover:bg-zinc-800 border border-white/10 rounded-lg transition-all cursor-pointer"
+                className="px-2.5 py-1.5 text-[11px] font-bold text-zinc-400 hover:text-zinc-200 bg-zinc-900 hover:bg-zinc-800 border border-white/10 rounded-lg transition-all cursor-pointer"
               >
-                Voltar
+                {isAdjustmentMode ? "Descartar" : "Voltar"}
               </button>
             )}
 
@@ -838,9 +873,9 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
                   />
                 </div>
                 <div className="px-4 py-3.5 rounded-2xl bg-graphite/90 border border-white/10 rounded-tl-none flex items-center gap-1.5 h-10 min-w-[56px] justify-center">
-                  <div className="w-1.5 h-1.5 rounded-full bg-acid animate-bounce" style={{ animationDelay: "0ms" }} />
-                  <div className="w-1.5 h-1.5 rounded-full bg-acid animate-bounce" style={{ animationDelay: "150ms" }} />
-                  <div className="w-1.5 h-1.5 rounded-full bg-acid animate-bounce" style={{ animationDelay: "300ms" }} />
+                  <div className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ backgroundColor: "#b6f348", animationDelay: "0ms" }} />
+                  <div className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ backgroundColor: "#b6f348", animationDelay: "150ms" }} />
+                  <div className="w-1.5 h-1.5 rounded-full animate-bounce" style={{ backgroundColor: "#b6f348", animationDelay: "300ms" }} />
                 </div>
               </div>
             )}

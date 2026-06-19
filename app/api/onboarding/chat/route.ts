@@ -645,7 +645,8 @@ Você DEVE usar esses dados como contexto clínico/prático: perfil, tempo de tr
 Por isso:
 1. NÃO siga a "SEQUÊNCIA DE ETAPAS" de onboarding (gênero, idade, bioimpedância, etc.). Ignore perguntas de dados básicos ou de confirmação de onboarding.
 2. Foque única e exclusivamente em atender e aplicar o ajuste pontual solicitado pelo usuário no diálogo (por exemplo, ajustar um alimento de uma refeição, adicionar um exercício, trocar uma carga).
-3. Mantenha TODOS os outros dados (workouts, diet, profile, biometrics, aerobic) exatamente iguais aos dados do currentPreviewData fornecido, modificando APENAS o item que foi solicitado diretamente. Se o usuário pediu ajuste na DIETA, NÃO altere nada nos TREINOS (workouts). Se o usuário pediu ajuste no TREINO, NÃO altere nada na DIETA.`;
+3. Mantenha TODOS os outros dados (workouts, diet, profile, biometrics, aerobic) exatamente iguais aos dados do currentPreviewData fornecido, modificando APENAS o item que foi solicitado diretamente. Se o usuário pediu ajuste na DIETA, NÃO altere nada nos TREINOS (workouts). Se o usuário pediu ajuste no TREINO, NÃO altere nada na DIETA.
+4. Se o usuário aprovar o ajuste, disser que está satisfeito, pedir para salvar, ou indicar que finalizou (ex: "salvar", "fechar", "aplicar", "ficou bom", "tudo certo", "pode salvar", "aprovo"), defina "finished": true. Caso contrário, mantenha "finished": false.`;
     }
 
     const response = await openai.chat.completions.create({
