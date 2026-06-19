@@ -270,10 +270,14 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
   const [showPreview, setShowPreview] = useState(false);
 
   const [currentStep, setCurrentStep] = useState<string>(() => {
-    return profile?.onboardingState?.step || "gender";
+    if (profile?.onboardingState?.step) return profile.onboardingState.step;
+    if (profile?.onboardingState?.isAdjustment) return "chat";
+    return "gender";
   });
   const [quickReplies, setQuickReplies] = useState<string[]>(() => {
-    return profile?.onboardingState?.quickReplies || ["Masculino", "Feminino", "Outro"];
+    if (profile?.onboardingState?.quickReplies) return profile.onboardingState.quickReplies;
+    if (profile?.onboardingState?.isAdjustment) return [];
+    return ["Masculino", "Feminino", "Outro"];
   });
 
   const handleResetOnboarding = async () => {
@@ -324,11 +328,19 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
       }
       setPreviewData(normalizePreviewData(profile.onboardingState?.previewData || {}));
       setFinished(profile.onboardingState?.finished || false);
+      
+      const isAdj = !!profile.onboardingState?.isAdjustment;
+      
       if (profile.onboardingState?.step) {
         setCurrentStep(profile.onboardingState.step);
+      } else {
+        setCurrentStep(isAdj ? "chat" : "gender");
       }
+      
       if (profile.onboardingState?.quickReplies) {
         setQuickReplies(profile.onboardingState.quickReplies);
+      } else {
+        setQuickReplies(isAdj ? [] : ["Masculino", "Feminino", "Outro"]);
       }
     }
   }, [profile]);
