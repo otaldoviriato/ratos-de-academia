@@ -978,6 +978,8 @@ export type UserProfile = {
     previewData: any;
     finished?: boolean;
     isAdjustment?: boolean;
+    step?: string;
+    quickReplies?: string[];
     updatedAt: string;
   };
   createdAt?: string;
@@ -1003,7 +1005,9 @@ export async function getUserProfileAction(): Promise<UserProfile | null> {
 export async function saveOnboardingProgressAction(
   messages: Array<{ role: "user" | "assistant" | "system"; content: string }>,
   previewData: any,
-  finished: boolean = false
+  finished: boolean = false,
+  step?: string,
+  quickReplies?: string[]
 ): Promise<void> {
   const { userId } = await auth();
   if (!userId) throw new Error("Não autorizado");
@@ -1024,6 +1028,8 @@ export async function saveOnboardingProgressAction(
           messages,
           previewData,
           finished,
+          step,
+          quickReplies,
           updatedAt: new Date().toISOString()
         },
         updatedAt: new Date().toISOString()

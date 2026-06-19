@@ -155,6 +155,87 @@ function formatFrequencyLabel(freq: any): string {
   return "Personalizado";
 }
 
+function inferStepFromMessage(message: string, previewData: any): string {
+  const text = message.toLowerCase();
+  
+  if (text.includes("genero") || text.includes("gênero") || text.includes("masculino") || text.includes("feminino")) {
+    return "gender";
+  }
+  if (text.includes("idade") || text.includes("quantos anos") || text.includes("sua idade")) {
+    return "age";
+  }
+  if (text.includes("tempo") && (text.includes("treina") || text.includes("musculacao") || text.includes("musculação"))) {
+    return "trainingTime";
+  }
+  if (text.includes("bioimpedancia") || text.includes("bioimpedância") || text.includes("exame recente") || text.includes("peso e altura")) {
+    if (text.includes("altura") && text.includes("peso") && !text.includes("prefere")) {
+      return "height";
+    }
+    return "bioimpedancia_choice";
+  }
+  if (text.includes("altura")) {
+    return "height";
+  }
+  if (text.includes("peso")) {
+    return "weight";
+  }
+  if (text.includes("corretos") && (text.includes("bioimpedancia") || text.includes("exame") || text.includes("peso:"))) {
+    return "bioimpedancia_confirm";
+  }
+  if (text.includes("objetivo") || text.includes("bulking") || text.includes("cutting") || text.includes("manutencao")) {
+    return "goal";
+  }
+  if (text.includes("dieta") && (text.includes("segue") || text.includes("sugestao") || text.includes("sugestão"))) {
+    return "diet_choice";
+  }
+  if (text.includes("dieta") && (text.includes("aprova") || text.includes("gostou") || text.includes("proposta"))) {
+    return "diet_confirm";
+  }
+  if (text.includes("dias") && (text.includes("treinar") || text.includes("semana"))) {
+    return "training_days";
+  }
+  if (text.includes("treino") && (text.includes("aprova") || text.includes("gostou") || text.includes("proposta") || text.includes("divisao") || text.includes("divisão"))) {
+    return "training_confirm";
+  }
+  if (text.includes("aerobico") || text.includes("aeróbico") || text.includes("cardio")) {
+    return "cardio_choice";
+  }
+  if (text.includes("salvar") || text.includes("começar") || text.includes("finalizar") || text.includes("pronto")) {
+    return "final_confirm";
+  }
+  
+  return "chat";
+}
+
+function getFallbackQuickReplies(step: string): string[] {
+  switch (step) {
+    case "gender":
+      return ["Masculino", "Feminino", "Outro"];
+    case "trainingTime":
+      return ["Menos de 1 ano", "1 a 3 anos", "Mais de 3 anos"];
+    case "bioimpedancia_choice":
+      return ["Tenho exame (enviar foto)", "Digitar peso e altura"];
+    case "bioimpedancia_confirm":
+      return ["Sim, está correto", "Não, quero ajustar"];
+    case "goal":
+      return ["Bulking (Ganho)", "Cutting (Perda)", "Manutenção (Saúde)"];
+    case "diet_choice":
+      return ["Quero uma sugestão", "Já tenho minha dieta"];
+    case "diet_confirm":
+      return ["Sim, aprovo", "Não, quero ajustar"];
+    case "training_days":
+      return ["2 dias", "3 dias", "4 dias", "5 dias", "6 dias"];
+    case "training_confirm":
+      return ["Sim, aprovo", "Não, quero ajustar"];
+    case "cardio_choice":
+      return ["Sim, quero aeróbico", "Não, sem aeróbico"];
+    case "final_confirm":
+      return ["Salvar e começar!", "Quero ajustar algo"];
+    default:
+      return [];
+  }
+}
+
 export default function OnboardingChat({ profile, onComplete }: OnboardingChatProps) {
   const isAdjustmentMode = !!profile?.onboardingState?.isAdjustment;
 
@@ -188,6 +269,13 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
   });
   const [showPreview, setShowPreview] = useState(false);
 
+  const [currentStep, setCurrentStep] = useState<string>(() => {
+    return profile?.onboardingState?.step || "gender";
+  });
+  const [quickReplies, setQuickReplies] = useState<string[]>(() => {
+    return profile?.onboardingState?.quickReplies || ["Masculino", "Feminino", "Outro"];
+  });
+
   const handleResetOnboarding = async () => {
     try {
       await resetOnboardingAction();
@@ -197,6 +285,8 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
       setFinished(false);
       setShowPreview(false);
       setUploadError("");
+      setCurrentStep("gender");
+      setQuickReplies(["Masculino", "Feminino", "Outro"]);
     } catch (err) {
       console.error("Erro ao resetar onboarding:", err);
     }
@@ -234,6 +324,12 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
       }
       setPreviewData(normalizePreviewData(profile.onboardingState?.previewData || {}));
       setFinished(profile.onboardingState?.finished || false);
+      if (profile.onboardingState?.step) {
+        setCurrentStep(profile.onboardingState.step);
+      }
+      if (profile.onboardingState?.quickReplies) {
+        setQuickReplies(profile.onboardingState.quickReplies);
+      }
     }
   }, [profile]);
 
@@ -294,11 +390,19 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
         setFinished(data.finished);
       }
 
+      const nextStep = data.step || inferStepFromMessage(data.message || "", mergedPreview);
+      const nextQuickReplies = data.quickReplies || getFallbackQuickReplies(nextStep);
+
+      setCurrentStep(nextStep);
+      setQuickReplies(nextQuickReplies);
+
       // Salva o progresso no MongoDB em background
       saveOnboardingProgressAction(
         finalMessages.filter(m => !m.content.startsWith("[Sistema")),
         mergedPreview,
-        data.finished || false
+        data.finished || false,
+        nextStep,
+        nextQuickReplies
       ).catch(err => console.error("Erro ao salvar progresso do onboarding:", err));
     } catch (error) {
       console.error(error);
@@ -385,11 +489,19 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
           setFinished(data.finished);
         }
 
+        const nextStep = data.step || inferStepFromMessage(data.message || "", mergedPreview);
+        const nextQuickReplies = data.quickReplies || getFallbackQuickReplies(nextStep);
+
+        setCurrentStep(nextStep);
+        setQuickReplies(nextQuickReplies);
+
         // Salva o progresso no MongoDB
         saveOnboardingProgressAction(
           finalMessages.filter(m => !m.content.startsWith("[Sistema")),
           mergedPreview,
-          data.finished || false
+          data.finished || false,
+          nextStep,
+          nextQuickReplies
         ).catch(err => console.error("Erro ao salvar progresso do onboarding pós-upload:", err));
       } catch (error) {
         console.error("Erro ao processar resposta da IA após upload:", error);
@@ -730,67 +842,123 @@ export default function OnboardingChat({ profile, onComplete }: OnboardingChatPr
           </div>
 
           {/* Área de Input */}
-          <div className="shrink-0 border-t border-white/10 bg-black/30 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] backdrop-blur-md">
-            {uploadError && (
-              <div className="mb-2 text-xs text-rose-500 bg-rose-950/20 border border-rose-900/30 px-3 py-2 rounded-lg">
-                ⚠️ {uploadError}
-              </div>
-            )}
-            <form 
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleSendMessage(input);
-              }}
-              className="flex items-center gap-2 bg-zinc-900/60 border border-white/10 rounded-xl p-1 focus-within:border-acid transition-all"
-            >
-              {/* Botão de Bioimpedância */}
-              <input 
-                type="file" 
-                ref={fileInputRef} 
-                onChange={handleFileUpload} 
-                className="hidden" 
-                accept="image/*" 
-              />
-              <button 
-                type="button"
-                disabled={isUploading || isTyping}
-                onClick={() => fileInputRef.current?.click()}
-                title="Anexar foto de exame de bioimpedância"
-                className="flex items-center justify-center w-10 h-10 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors disabled:opacity-50 cursor-pointer"
-              >
-                {isUploading ? (
-                  <Loader2 className="w-5 h-5 animate-spin text-acid" />
-                ) : (
-                  <Paperclip className="w-5 h-5" />
+          {(() => {
+            const isNumericStep = ["age", "height", "weight"].includes(currentStep);
+            
+            const getInputType = () => {
+              if (isNumericStep) return "number";
+              return "text";
+            };
+
+            const getInputProps = () => {
+              if (currentStep === "age") {
+                return { min: 1, max: 120, step: 1 };
+              }
+              if (currentStep === "height") {
+                return { min: 100, max: 250, step: 1 };
+              }
+              if (currentStep === "weight") {
+                return { min: 30, max: 300, step: 0.1 };
+              }
+              return {};
+            };
+
+            const getPlaceholderText = () => {
+              if (isUploading) return "Analisando exame...";
+              if (isTyping) return "O Ratão está digitando...";
+              if (currentStep === "age") return "Digite sua idade... (ex: 28)";
+              if (currentStep === "height") return "Digite sua altura em cm... (ex: 175)";
+              if (currentStep === "weight") return "Digite seu peso em kg... (ex: 78.5)";
+              if (currentStep === "gender") return "Selecione seu gênero nas opções acima...";
+              if (currentStep === "bioimpedancia_choice") return "Selecione uma opção acima...";
+              if (currentStep === "goal") return "Selecione seu objetivo acima...";
+              
+              return "Digite sua mensagem... (ex: 'Treino há 2 anos')";
+            };
+
+            return (
+              <div className="shrink-0 border-t border-white/10 bg-black/30 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] backdrop-blur-md">
+                {/* Botões de Resposta Rápida (Quick Replies) */}
+                {quickReplies && quickReplies.length > 0 && !isTyping && !isUploading && !finished && (
+                  <div className="flex flex-wrap gap-2 mb-3 max-h-[140px] overflow-y-auto animate-[fadeIn_0.2s_ease-out] scrollbar-thin">
+                    {quickReplies.map((reply, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => {
+                          if (reply.includes("exame") && reply.includes("foto")) {
+                            fileInputRef.current?.click();
+                          } else {
+                            handleSendMessage(reply);
+                          }
+                        }}
+                        className="px-3.5 py-1.5 text-xs font-black rounded-xl border border-white/10 text-zinc-300 hover:border-acid hover:text-white cursor-pointer bg-white/[0.02] hover:bg-acid/10 transition-all duration-200 active:scale-[0.97]"
+                      >
+                        {reply}
+                      </button>
+                    ))}
+                  </div>
                 )}
-              </button>
 
-              <input 
-                ref={inputRef}
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder={
-                  isUploading 
-                    ? "Analisando exame..." 
-                    : "Digite sua mensagem... (ex: 'Treino há 2 anos')"
-                }
-                disabled={isTyping || isUploading}
-                className="flex-1 bg-transparent text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none px-2"
-              />
+                {uploadError && (
+                  <div className="mb-2 text-xs text-rose-500 bg-rose-950/20 border border-rose-900/30 px-3 py-2 rounded-lg">
+                    ⚠️ {uploadError}
+                  </div>
+                )}
+                <form 
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleSendMessage(input);
+                  }}
+                  className="flex items-center gap-2 bg-zinc-900/60 border border-white/10 rounded-xl p-1 focus-within:border-acid transition-all"
+                >
+                  {/* Botão de Bioimpedância */}
+                  <input 
+                    type="file" 
+                    ref={fileInputRef} 
+                    onChange={handleFileUpload} 
+                    className="hidden" 
+                    accept="image/*" 
+                  />
+                  <button 
+                    type="button"
+                    disabled={isUploading || isTyping}
+                    onClick={() => fileInputRef.current?.click()}
+                    title="Anexar foto de exame de bioimpedância"
+                    className="flex items-center justify-center w-10 h-10 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors disabled:opacity-50 cursor-pointer"
+                  >
+                    {isUploading ? (
+                      <Loader2 className="w-5 h-5 animate-spin text-acid" />
+                    ) : (
+                      <Paperclip className="w-5 h-5" />
+                    )}
+                  </button>
 
-              <button
-                type="submit"
-                disabled={!input.trim() || isTyping || isUploading}
-                className="flex items-center justify-center w-10 h-10 rounded-lg bg-acid hover:opacity-90 text-black transition-colors disabled:opacity-50 cursor-pointer"
-              >
-                <Send className="w-4 h-4" />
-              </button>
-            </form>
-            <div className="mt-2 text-center text-[10px] text-zinc-600">
-              Dica: Anexe uma foto legível da sua bioimpedância para calcular a dieta automaticamente.
-            </div>
-          </div>
+                  <input 
+                    ref={inputRef}
+                    type={getInputType()}
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    placeholder={getPlaceholderText()}
+                    disabled={isTyping || isUploading}
+                    className="flex-1 bg-transparent text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none px-2"
+                    {...getInputProps()}
+                  />
+
+                  <button
+                    type="submit"
+                    disabled={!input.trim() || isTyping || isUploading}
+                    className="flex items-center justify-center w-10 h-10 rounded-lg bg-acid hover:opacity-90 text-black transition-colors disabled:opacity-50 cursor-pointer"
+                  >
+                    <Send className="w-4 h-4" />
+                  </button>
+                </form>
+                <div className="mt-2 text-center text-[10px] text-zinc-600">
+                  Dica: Anexe uma foto legível da sua bioimpedância para calcular a dieta automaticamente.
+                </div>
+              </div>
+            );
+          })()}
         </div>
 
         </div>

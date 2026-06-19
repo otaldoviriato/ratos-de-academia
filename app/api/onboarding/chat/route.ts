@@ -11,6 +11,8 @@ type OnboardingResponse = {
   message?: string;
   previewData?: any;
   finished?: boolean;
+  step?: string;
+  quickReplies?: string[];
 };
 
 type WorkoutExercise = {
@@ -549,7 +551,9 @@ INSTRUÇÕES IMPORTANTES DE DIÁLOGO:
    - "message": A mensagem amigável (sem marcações markdown cruas) para o usuário.
    - "previewData": Objeto JSON contendo os dados estruturados validados.
    - "finished": Booleano (true/false) indicando se tudo foi finalizado e confirmado.
-4. RESPOSTA E AÇÃO SIMULTÂNEAS: Quando o usuário solicitar ou você fizer alterações na rotina/dieta/treinos no "previewData", você DEVE atualizar o "previewData" e também descrever a entrega na propriedade "message". Para treino ou dieta, a mensagem não deve ser curta demais: ela precisa trazer redundantemente a divisão/lista criada, porque o usuário pode estar no mobile e não ver o preview imediatamente.
+   - "step": String identificando a etapa atual do fluxo da pergunta (use exatamente uma destas strings: "gender", "age", "trainingTime", "bioimpedancia_choice", "height", "weight", "bioimpedancia_confirm", "goal", "diet_choice", "diet_confirm", "training_days", "training_confirm", "cardio_choice", "final_confirm").
+   - "quickReplies": Um array de strings com sugestões de respostas rápidas (opções de botões) ideais para a pergunta feita em "message", como por exemplo: para gênero: ["Masculino", "Feminino", "Outro"]; para bioimpedância escolha: ["Tenho exame (enviar foto)", "Digitar peso e altura"]; para objetivo: ["Bulking (Ganho)", "Cutting (Perda)", "Manutenção (Saúde)"]; para dieta escolha: ["Quero uma sugestão", "Já tenho minha dieta"]; para confirmação de dieta/treino: ["Sim, aprovo", "Não, quero ajustar"]; para dias de treino: ["2 dias", "3 dias", "4 dias", "5 dias", "6 dias"]; para sim/não em geral: ["Sim", "Não"]. Se for uma pergunta totalmente aberta, envie um array vazio.
+4. RESPOSTA E AÇÃO SIMULTÂNEAS: Quando o usuário solicitar ou você fizer alterações na rotina/dieta/treinos no "previewData", você DEVE atualizar o "previewData" e também descrever a entrega na propriedade "message". Para treino ou dieta, a mensagem não deve ser corta demais: ela precisa trazer redundantemente a divisão/lista criada, porque o usuário pode estar no mobile e não ver o preview imediatamente.
 5. NUNCA DEIXE MENSAGENS INCOMPLETAS: Garanta que a propriedade "message" seja sempre uma frase completa e conclusiva. Nunca termine com dois pontos (ex: "Aqui está:") ou de forma abrupta, e nunca envie uma mensagem vazia que pareça ter sido cortada.
 6. NUNCA PROMETA UMA MENSAGEM FUTURA: O chat funciona por turnos e você só responde depois de uma mensagem do usuário. Portanto, não diga "aguarde", "um momento", "vou preparar", "vou montar", "já te entrego" ou frases semelhantes. Se precisar criar ou refazer treino/dieta, faça isso integralmente nesta mesma resposta.
 7. SE DISSER QUE VAI MOSTRAR ALGO, MOSTRE NA MESMA MENSAGEM: Não escreva "aqui está", "segue" ou "nova proposta:" sem listar o conteúdo logo depois. Nunca termine a mensagem com dois pontos.
